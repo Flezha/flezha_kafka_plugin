@@ -1,0 +1,7 @@
+%{
+  "jason": {:hex, :jason, "1.4.5", "2e3a008590b0b8d7388c20293e9dcc9cf3e5d642fd2a114e4cbbb52e595d940a", [:mix], [{:decimal, "~> 1.0 or ~> 2.0 or ~> 3.0", [hex: :decimal, repo: "hexpm", optional: true]}], "hexpm", "b0c823996102bcd0239b3c2444eb00409b72f6a140c1950bc8b457d836b30684"},
+  "protox": {:hex, :protox, "2.1.0", "af130f17349a34acb3c79a48f05cc2b07fddf7d9951944b92c217c5b439bfa6e", [:mix], [], "hexpm", "89efe4c45eacaa8e8e6347d4be0813b6d5c58d004920a5150d81ea655cbd8cb2"},
+  "rustler": {:hex, :rustler, "0.38.0", "7a8906998ff0d28e3021c0a73264abcda719bda344b2e58307c6805b0f87c9b4", [:mix], [{:jason, "~> 1.0", [hex: :jason, repo: "hexpm", optional: false]}], "hexpm", "704c03c1bf66be12b031c5a389347b91c81c5cb819a24b068b0de36fe4a5652a"},
+  "rustler_precompiled": {:hex, :rustler_precompiled, "0.10.0", "8f07ff0865cb09a6a0f75e11701e9a46e331e05f737da4e5b01374dcd25b68c0", [:mix], [{:rustler, "~> 0.28", [hex: :rustler, repo: "hexpm", optional: true]}], "hexpm", "c68c9dc732c12acfdf4a7fa06f4e6f48a641179e6be49a474c8a60809929c430"},
+  "telemetry": {:hex, :telemetry, "1.4.2", "a0cb522801dffb1c49fe6e30561badffc7b6d0e180db1300df759faa22062855", [:rebar3], [], "hexpm", "928f6495066506077862c0d1646609eed891a4326bee3126ba54b60af61febb1"},
+}

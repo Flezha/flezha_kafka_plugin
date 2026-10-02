@@ -1,0 +1,5 @@
+_build/
+deps/
+*.fpz
+erl_crash.dump
+tmp/
