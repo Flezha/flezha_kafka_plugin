@@ -3,21 +3,27 @@ defmodule FlezhaKafka.DocsTest do
 
   alias Flezha.Plugin.ProviderBehaviour.Options
 
-  @page Path.join(Mix.Project.deps_paths()[:flezha], "docs/plugins/kafka_producer.md")
+  @pages Mix.Project.deps_paths()[:flezha] |> Path.join("docs/plugins")
 
-  test "the core's page carries the option table the provider's declaration renders" do
-    rendered = Options.render_options_table(FlezhaKafka.Producer)
+  for {provider, page} <- [
+        {FlezhaKafka.Producer, "kafka_producer.md"},
+        {FlezhaKafka.Consumer, "kafka_consumer.md"}
+      ] do
+    test "the core's #{page} carries the option table #{inspect(provider)} renders" do
+      page = Path.join(@pages, unquote(page))
+      rendered = Options.render_options_table(unquote(provider))
 
-    documented =
-      @page
-      |> File.read!()
-      |> String.split("<!-- provider-options:begin -->\n")
-      |> Enum.at(1, "")
-      |> String.split("<!-- provider-options:end -->")
-      |> hd()
+      documented =
+        page
+        |> File.read!()
+        |> String.split("<!-- provider-options:begin -->\n")
+        |> Enum.at(1, "")
+        |> String.split("<!-- provider-options:end -->")
+        |> hd()
 
-    assert documented == rendered,
-           "#{@page}'s option table has drifted from FlezhaKafka.Producer's declaration.\n" <>
-             "Replace the block between the provider-options markers with:\n\n" <> rendered
+      assert documented == rendered,
+             "#{page}'s option table has drifted from #{inspect(unquote(provider))}'s declaration.\n" <>
+               "Replace the block between the provider-options markers with:\n\n" <> rendered
+    end
   end
 end

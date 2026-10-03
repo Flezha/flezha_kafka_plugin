@@ -100,6 +100,26 @@ defmodule FlezhaKafka.Test.Helpers do
     end
   end
 
+  @doc """
+  The host operator of a feeding worker, linked to the caller: it answers each
+  confirming ingest with the next of `verdicts`, `:ok` once they run out, and
+  tells the caller `{:ingest, tag, body, metadata}`.
+  """
+  def stand_in_host(tag, verdicts \\ []) do
+    test = self()
+    spawn_link(fn -> host_loop(test, tag, verdicts) end)
+  end
+
+  defp host_loop(test, tag, verdicts) do
+    receive do
+      {:"$gen_call", from, {:ingest, body, metadata}} ->
+        send(test, {:ingest, tag, body, metadata})
+        {verdict, rest} = if verdicts == [], do: {:ok, []}, else: {hd(verdicts), tl(verdicts)}
+        GenServer.reply(from, verdict)
+        host_loop(test, tag, rest)
+    end
+  end
+
   @doc "Mimic's global mode for this test, released when it exits."
   def set_mimic_global_until_exit(_context \\ %{}) do
     Mimic.set_mimic_global()

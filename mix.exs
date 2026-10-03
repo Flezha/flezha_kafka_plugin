@@ -18,10 +18,17 @@ defmodule FlezhaKafka.MixProject do
     ]
   end
 
-  # No `mod`: the producer's workers and its broker-client registry are started
-  # under the provider's family by the controller.
+  # No `mod`: the providers' workers and the producer's broker-client registry
+  # are started under each provider's family by the controller.
   def application do
-    [env: [flezha_providers: %{"kafka_producer" => FlezhaKafka.Producer}]]
+    [
+      env: [
+        flezha_providers: %{
+          "kafka_producer" => FlezhaKafka.Producer,
+          "kafka_consumer" => FlezhaKafka.Consumer
+        }
+      ]
+    ]
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]

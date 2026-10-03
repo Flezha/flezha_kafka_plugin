@@ -22,6 +22,7 @@ defmodule FlezhaKafka.IntegrationTest do
   alias FlezhaKafka.ProducerWorker
   alias Flezha.Plugin.Provider.WorkerSup
   alias FlezhaKafka.Test.Helpers
+  alias Flezha.SDK.SafeCall
 
   # async: false: a shared Kafka broker in Docker.
 
@@ -89,11 +90,15 @@ defmodule FlezhaKafka.IntegrationTest do
     second_half = produce_in_parallel(pid, 51..100)
 
     # The paused broker answers nothing: the worker has to have met that —
-    # a failed attempt on the wire — before the broker comes back.
+    # a failed attempt on the wire — before the broker comes back. While it
+    # waits on its client, for up to the library's `sync_timeout`, its stats
+    # answer comes that much late; an unanswered read is read again.
+    stats_budget = Application.fetch_env!(:kafka_ex, :sync_timeout)
+
     assert Helpers.wait_until(
              fn ->
-               stats = ProducerWorker.stats(pid)
-               stats.consecutive_failures >= 1 or stats.last_error != nil
+               stats = SafeCall.bounded(pid, :stats, stats_budget, on_error: %{}, log: :debug)
+               Map.get(stats, :consecutive_failures, 0) >= 1 or Map.get(stats, :last_error) != nil
              end,
              30_000
            ),
