@@ -22,6 +22,7 @@ defmodule FlezhaKafka.ProducerWorker do
 
   require Logger
 
+  alias Flezha.Process.Backlog
   alias Flezha.Process.Cspec
   alias Flezha.SDK.SafeCall
   alias FlezhaKafka.ProducerWorker.Client
@@ -154,7 +155,10 @@ defmodule FlezhaKafka.ProducerWorker do
       |> Map.merge(configured(opts))
       |> Map.merge(fresh_slots())
 
-    Map.merge(state, Lanes.new(state.fixed_partition, state.idempotent, state.max_in_flight))
+    Map.merge(
+      state,
+      Lanes.new(state.fixed_partition, state.idempotent, state.max_in_flight, state.queue_max)
+    )
   end
 
   # The declared tunables, taken as given, plus the injected seams. A tunable
@@ -292,7 +296,7 @@ defmodule FlezhaKafka.ProducerWorker do
       for {p, lane} <- Lanes.all(state),
           p != nil,
           into: %{},
-          do: {p, %{queue_depth: lane.queue_size, in_flight: Lanes.window_records(lane)}}
+          do: {p, %{queue_depth: lane.queue.frames, in_flight: Lanes.window_records(lane)}}
 
     {:reply,
      %{
@@ -511,13 +515,11 @@ defmodule FlezhaKafka.ProducerWorker do
 
     held =
       Enum.flat_map(state.in_flight, & &1.records) ++
-        :queue.to_list(state.queue) ++ :queue.to_list(state.blocked)
+        Backlog.to_list(state.queue) ++ :queue.to_list(state.blocked)
 
     state = %{
       state
-      | queue: :queue.new(),
-        queue_size: 0,
-        queue_bytes: 0,
+      | queue: Backlog.clear(state.queue),
         blocked: :queue.new(),
         in_flight: []
     }

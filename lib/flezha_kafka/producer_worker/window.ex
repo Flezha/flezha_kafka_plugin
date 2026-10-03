@@ -15,6 +15,7 @@ defmodule FlezhaKafka.ProducerWorker.Window do
 
   alias Flezha.SDK.Knob
   alias Flezha.Plugin.ProviderBehaviour
+  alias Flezha.Process.Backlog
   alias Flezha.State.Outbox
   alias FlezhaKafka.ProducerWorker.Client
   alias FlezhaKafka.ProducerWorker.Wire
@@ -27,35 +28,35 @@ defmodule FlezhaKafka.ProducerWorker.Window do
   # A full queue never discards a record unless the user chose a drop
   # strategy: the default is `:drop_nothing` for every record, guaranteed or not.
   def admit_record(state, record, from_or_async) do
-    if state.queue_size < state.queue_max do
-      {:admitted, push(state, record)}
-    else
-      overflow(state, record, from_or_async, state.queue_overflow)
+    case Backlog.admit(state.queue, record, record.bytes, state.queue_overflow) do
+      {:queued, queue, evicted} ->
+        {:admitted, Enum.reduce(evicted, %{state | queue: queue}, &evict/2)}
+
+      {:refused, _queue, []} ->
+        state = record_drop(state, record, :drop_newest)
+
+        case from_or_async do
+          :async -> {:dropped_async, state}
+          _from -> {:replied, {:error, {:queue_full, :overflow}}, state}
+        end
+
+      {:full, _queue} ->
+        overflow(state, record, from_or_async)
     end
   end
 
-  defp overflow(state, record, from_or_async, :drop_newest) do
-    state = record_drop(state, record, :drop_newest)
-
-    case from_or_async do
-      :async -> {:dropped_async, state}
-      _from -> {:replied, {:error, {:queue_full, :overflow}}, state}
-    end
-  end
-
-  defp overflow(state, record, _from_or_async, :drop_oldest) do
-    {state, evicted} = pop(state)
-    reply_to_record(evicted, {:error, {:queue_full, :evicted}})
-    {:admitted, state |> record_drop(evicted, :drop_oldest) |> push(record)}
+  defp evict(record, state) do
+    reply_to_record(record, {:error, {:queue_full, :evicted}})
+    record_drop(state, record, :drop_oldest)
   end
 
   # Room is made by a drained batch, never by evicting an admitted record. A
   # synchronous caller waits out its own timeout; a cast-admitted record simply
   # waits — the enqueueing process is not blocked either way.
-  defp overflow(state, record, :async, :drop_nothing),
+  defp overflow(state, record, :async),
     do: {:blocked, %{state | blocked: :queue.in({:async, record}, state.blocked)}}
 
-  defp overflow(state, record, from, :drop_nothing) do
+  defp overflow(state, record, from) do
     Process.send_after(
       self(),
       {:block_timeout, state.partition, from},
@@ -84,7 +85,7 @@ defmodule FlezhaKafka.ProducerWorker.Window do
     emit_produce_dropped(
       1,
       Map.merge(partition_meta(state), %{
-        queue_depth: state.queue_size,
+        queue_depth: state.queue.frames,
         overflow_strategy: strategy,
         guaranteed: guaranteed?,
         reason: :overflow
@@ -108,29 +109,7 @@ defmodule FlezhaKafka.ProducerWorker.Window do
   def reply_to_record(%{from: :async}, _reply), do: :ok
   def reply_to_record(%{from: from}, reply), do: GenServer.reply(from, reply)
 
-  defp push(state, record) do
-    %{
-      state
-      | queue: :queue.in(record, state.queue),
-        queue_size: state.queue_size + 1,
-        queue_bytes: state.queue_bytes + record.bytes
-    }
-  end
-
-  defp pop(state) do
-    case :queue.out(state.queue) do
-      {{:value, record}, q} ->
-        {%{
-           state
-           | queue: q,
-             queue_size: state.queue_size - 1,
-             queue_bytes: state.queue_bytes - record.bytes
-         }, record}
-
-      {:empty, _} ->
-        {state, nil}
-    end
-  end
+  defp push(state, record), do: %{state | queue: Backlog.push(state.queue, record, record.bytes)}
 
   @doc "A synchronous caller's wait for room ran out: it is answered `:queue_full`."
   def block_timeout(state, from) do
@@ -154,10 +133,10 @@ defmodule FlezhaKafka.ProducerWorker.Window do
   # next one instead.
   def maybe_kick_batch(state) do
     cond do
-      not slot_free?(state) or state.queue_size == 0 ->
+      not slot_free?(state) or state.queue.frames == 0 ->
         state
 
-      state.queue_bytes >= state.max_batch_bytes ->
+      state.queue.bytes >= state.max_batch_bytes ->
         send(self(), {:flush_batch, state.partition})
         state
 
@@ -316,14 +295,11 @@ defmodule FlezhaKafka.ProducerWorker.Window do
   # The whole window returns to the head of the queue, oldest batch first, so
   # the fresh producer session re-sends it in admission order.
   def rewind_in_flight(state, reason) do
-    records = Enum.flat_map(state.in_flight, & &1.records)
-    bytes_back = Enum.reduce(records, 0, fn r, n -> n + r.bytes end)
+    records = for batch <- state.in_flight, record <- batch.records, do: {record, record.bytes}
 
     %{
       state
-      | queue: :queue.join(:queue.from_list(records), state.queue),
-        queue_size: state.queue_size + length(records),
-        queue_bytes: state.queue_bytes + bytes_back,
+      | queue: Backlog.requeue(state.queue, records),
         in_flight: [],
         last_error: {:worker_died, reason}
     }
@@ -334,7 +310,7 @@ defmodule FlezhaKafka.ProducerWorker.Window do
   # `acc_bytes` rides along: re-summing the accumulator per record made a
   # batch of n records cost n² additions.
   defp drain(state, max_bytes, acc, acc_bytes) do
-    case :queue.peek(state.queue) do
+    case Backlog.peek(state.queue) do
       :empty ->
         {Enum.reverse(acc), state}
 
@@ -342,8 +318,8 @@ defmodule FlezhaKafka.ProducerWorker.Window do
         if acc != [] and acc_bytes + record.bytes > max_bytes do
           {Enum.reverse(acc), state}
         else
-          {state, _} = pop(state)
-          drain(state, max_bytes, [record | acc], acc_bytes + record.bytes)
+          {record, queue} = Backlog.out(state.queue)
+          drain(%{state | queue: queue}, max_bytes, [record | acc], acc_bytes + record.bytes)
         end
     end
   end
@@ -700,7 +676,7 @@ defmodule FlezhaKafka.ProducerWorker.Window do
         state
 
       {{:value, {from, record}}, rest} ->
-        if state.queue_size < state.queue_max do
+        if Backlog.fits?(state.queue, record.bytes) do
           state = %{state | blocked: rest}
           state = push(state, %{record | from: from})
           process_blocked(state)

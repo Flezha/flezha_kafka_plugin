@@ -1,4 +1,5 @@
 defmodule FlezhaKafka.ProducerWorkerEnqueueTest do
+  alias Flezha.Process.Backlog
   alias FlezhaKafka.ProducerWorker
   alias FlezhaKafka.WorkerRegistry
   alias FlezhaKafka.Test.Helpers
@@ -350,7 +351,7 @@ defmodule FlezhaKafka.ProducerWorkerEnqueueTest do
       assert post.pending_swap_telemetry == nil
 
       # All three records still in-system (queue + in_flight).
-      assert post.queue_size + window_records(post) == 3
+      assert post.queue.frames + window_records(post) == 3
     end
 
     test "re-admitted in_flight records retain from/metadata/timestamp/bytes/key" do
@@ -379,7 +380,7 @@ defmodule FlezhaKafka.ProducerWorkerEnqueueTest do
       # After the swap, the rewound records may still be in queue OR have
       # been kicked into the new in_flight batch — assert they remain in
       # the producer's bookkeeping with their original fields intact.
-      in_post = :queue.to_list(post.queue) ++ Enum.flat_map(post.in_flight, & &1.records)
+      in_post = Backlog.to_list(post.queue) ++ Enum.flat_map(post.in_flight, & &1.records)
 
       preserved = Enum.take(in_post, length(in_flight_records))
 
@@ -561,7 +562,7 @@ defmodule FlezhaKafka.ProducerWorkerEnqueueTest do
       assert wait_until(
                fn ->
                  state = :sys.get_state(pid)
-                 state.queue_size == 0 and state.in_flight == []
+                 state.queue.frames == 0 and state.in_flight == []
                end,
                2_000,
                5
@@ -571,7 +572,7 @@ defmodule FlezhaKafka.ProducerWorkerEnqueueTest do
              "producer must stay alive after exhaustion (no supervisor crash loop)"
 
       state = :sys.get_state(pid)
-      assert state.queue_size == 0
+      assert state.queue.frames == 0
       assert state.in_flight == []
       assert state.swap_attempt == 0
       assert state.swap_started_at == nil

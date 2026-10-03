@@ -12,6 +12,8 @@ defmodule FlezhaKafka.ProducerWorker.Lanes do
   before the topic's partition count is known; it never sends.
   """
 
+  alias Flezha.Process.Backlog
+
   @fields [
     :partition,
     :producer_id,
@@ -20,8 +22,6 @@ defmodule FlezhaKafka.ProducerWorker.Lanes do
     :idempotent,
     :max_in_flight,
     :queue,
-    :queue_size,
-    :queue_bytes,
     :linger_timer,
     :in_flight,
     :retry_timer,
@@ -30,9 +30,12 @@ defmodule FlezhaKafka.ProducerWorker.Lanes do
     :last_error
   ]
 
-  @doc "A fresh lane for `partition`, its session as configured and not yet started."
-  @spec new(non_neg_integer() | nil, boolean(), non_neg_integer()) :: map()
-  def new(partition, idempotent, max_in_flight) do
+  @doc """
+  A fresh lane for `partition`, its session as configured and not yet started,
+  its queue bounded by `queue_max` records alone.
+  """
+  @spec new(non_neg_integer() | nil, boolean(), non_neg_integer(), pos_integer()) :: map()
+  def new(partition, idempotent, max_in_flight, queue_max) do
     %{
       partition: partition,
       producer_id: nil,
@@ -41,9 +44,7 @@ defmodule FlezhaKafka.ProducerWorker.Lanes do
       # The waiting lane is never sent from: no window slot ever frees.
       idempotent: idempotent and partition != nil,
       max_in_flight: if(partition == nil, do: 0, else: max_in_flight),
-      queue: :queue.new(),
-      queue_size: 0,
-      queue_bytes: 0,
+      queue: Backlog.new(:infinity, queue_max),
       linger_timer: nil,
       # Batches outstanding on the wire, oldest first.
       in_flight: [],
@@ -73,7 +74,13 @@ defmodule FlezhaKafka.ProducerWorker.Lanes do
   end
 
   defp fresh(state, partition),
-    do: new(partition, state.configured_idempotent, state.configured_max_in_flight)
+    do:
+      new(
+        partition,
+        state.configured_idempotent,
+        state.configured_max_in_flight,
+        state.queue_max
+      )
 
   @doc "Remove lane `partition`, holding the waiting lane if it was the held one."
   @spec drop(map(), non_neg_integer() | nil) :: map()
@@ -132,9 +139,9 @@ defmodule FlezhaKafka.ProducerWorker.Lanes do
   def totals(state) do
     Enum.reduce(all(state), %{queue_depth: 0, in_flight: 0, queue_bytes: 0}, fn {_p, lane}, acc ->
       %{
-        queue_depth: acc.queue_depth + lane.queue_size,
+        queue_depth: acc.queue_depth + lane.queue.frames,
         in_flight: acc.in_flight + window_records(lane),
-        queue_bytes: acc.queue_bytes + lane.queue_bytes
+        queue_bytes: acc.queue_bytes + lane.queue.bytes
       }
     end)
   end

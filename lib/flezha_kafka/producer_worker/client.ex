@@ -9,6 +9,7 @@ defmodule FlezhaKafka.ProducerWorker.Client do
 
   require Logger
 
+  alias Flezha.Process.Backlog
   alias FlezhaKafka.ProducerWorker.Lanes
   alias FlezhaKafka.ProducerWorker.Window
   alias FlezhaKafka.WorkerRegistry
@@ -255,7 +256,7 @@ defmodule FlezhaKafka.ProducerWorker.Client do
   end
 
   defp fail_queued(state, swap_reason) do
-    queued = :queue.to_list(state.queue)
+    queued = Backlog.to_list(state.queue)
 
     Enum.each(queued, fn record ->
       reply_to_record(record, {:error, {:delivery_failed, :worker_swap_exhausted}})
@@ -270,7 +271,7 @@ defmodule FlezhaKafka.ProducerWorker.Client do
       )
     end)
 
-    %{state | queue: :queue.new(), queue_size: 0, queue_bytes: 0, in_flight: []}
+    %{state | queue: Backlog.clear(state.queue), in_flight: []}
   end
 
   @doc "The one `worker_swapped` event of a swap, once the sessions are back."

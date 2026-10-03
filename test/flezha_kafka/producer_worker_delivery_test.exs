@@ -293,7 +293,7 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
       # order, and leave again under the new session.
       assert_receive {:dispatched, _, resent}, 1_000
       assert record_values(resent) == ["m1", "m2", "m3"]
-      assert :sys.get_state(pid).queue_size == 0
+      assert :sys.get_state(pid).queue.frames == 0
     end
 
     test "a completed batch confirms each of its records exactly once" do
