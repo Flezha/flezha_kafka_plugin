@@ -1,6 +1,6 @@
 defmodule FlezhaKafka.Producer do
   @moduledoc """
-  The `kafka_producer` provider: an `:on_input` / `:on_output` sink that produces
+  The `kafka_producer` provider: an `:on_input` / `:on_output` output plugin that produces
   each record to a Kafka topic, with retries, idempotence, batching, a bounded
   queue, compression and active metadata refresh on transient broker errors.
 

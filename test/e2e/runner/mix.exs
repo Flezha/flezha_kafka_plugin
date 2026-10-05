@@ -2,7 +2,7 @@ defmodule E2eRunner.MixProject do
   use Mix.Project
 
   # The end-to-end fixture: an Elixir SDK runner whose relays emit every input
-  # on the sink `out`, which the Kafka producer under test publishes. It is a test,
+  # on the output `out`, which the Kafka producer under test publishes. It is a test,
   # not an example: `test/e2e/run.sh` builds and starts it. The SDK is the one in
   # the core checkout beside this repository.
   def project do
