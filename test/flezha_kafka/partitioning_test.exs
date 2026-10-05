@@ -39,7 +39,7 @@ defmodule FlezhaKafka.PartitioningTest do
           [
             linger_ms: Keyword.get(opts, :linger_ms, 0),
             idempotent: false,
-            send_fn: Fakes.relay_send_fn(self()),
+            send_fn: Fakes.forward_send_fn(self()),
             extra: [
               partition: nil,
               partitioner: Keyword.get(opts, :partitioner, :murmur2),
@@ -91,7 +91,7 @@ defmodule FlezhaKafka.PartitioningTest do
       Fakes.start_worker(
         linger_ms: 0,
         idempotent: false,
-        send_fn: Fakes.relay_send_fn(self()),
+        send_fn: Fakes.forward_send_fn(self()),
         extra: [partition: 3]
       )
 
@@ -156,7 +156,7 @@ defmodule FlezhaKafka.PartitioningTest do
         linger_ms: 0,
         idempotent: true,
         max_in_flight: 5,
-        send_fn: Fakes.relay_send_fn(self()),
+        send_fn: Fakes.forward_send_fn(self()),
         extra: [partition: nil, partition_count_fn: fn _w, _t, _o -> {:ok, 12} end]
       )
 

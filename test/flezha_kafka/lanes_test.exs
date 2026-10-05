@@ -45,7 +45,7 @@ defmodule FlezhaKafka.LanesTest do
           [
             linger_ms: 0,
             max_in_flight: 5,
-            send_fn: Fakes.relay_send_fn(self()),
+            send_fn: Fakes.forward_send_fn(self()),
             extra: [partition: nil, partition_count_fn: count_fn] ++ extra
           ],
           opts

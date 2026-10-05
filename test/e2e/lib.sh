@@ -74,18 +74,18 @@ stop_controller() {
   until_ok 30 "! pgrep -f 'beam.smp.* $FLEZHA_NODE_NAME@'" || pkill -KILL -f "beam.smp.* $FLEZHA_NODE_NAME@"
 }
 
-build_relay() {
-  (cd "$HERE/relay" && mix deps.get && mix compile) >"$TMP/out/relay-build.log" 2>&1 ||
-    { cat "$TMP/out/relay-build.log"; exit 1; }
+build_runner() {
+  (cd "$HERE/runner" && mix deps.get && mix compile) >"$TMP/out/runner-build.log" 2>&1 ||
+    { cat "$TMP/out/runner-build.log"; exit 1; }
 }
 
-# `start_runner <name> <namespace>`: the relay fixture as a runner of the
+# `start_runner <name> <namespace>`: the e2e runner as a runner of the
 # controller whose environment is set. Its standard input stays open until
 # `stop_runner`, whose closing it reads as its stop.
 start_runner() {
   mkfifo "$TMP/$1.in"
   (sleep infinity >"$TMP/$1.in" & echo $! >"$TMP/$1.hold")
-  (cd "$HERE/relay" && FLEZHA_RUNNER_ID_PATH="$TMP/runner-id-$1" \
+  (cd "$HERE/runner" && FLEZHA_RUNNER_ID_PATH="$TMP/runner-id-$1" \
     setsid mix run --no-compile --no-deps-check --no-halt -- "$2" <"$TMP/$1.in" >"$TMP/out/$1.log" 2>&1 &
     echo $! >"$TMP/$1.pid")
 }
@@ -98,10 +98,10 @@ stop_runner() {
   until_ok 10 "! kill -0 $pid" || kill -KILL -- "-$pid" 2>/dev/null
 }
 
-# `start_operator <factory> <id>`, retried until the runner serves the factory.
-start_operator() {
+# `start_relay <factory> <id>`, retried until the runner serves the factory.
+start_relay() {
   for _ in $(seq 60); do
-    flz operator start "$1" --id "$2" >>"$TMP/out/start-$2.log" 2>&1 && return 0
+    flz relay start "$1" --id "$2" >>"$TMP/out/start-$2.log" 2>&1 && return 0
     sleep 1
   done
   say "$2 did not start: $(tail -3 "$TMP/out/start-$2.log")"
@@ -117,19 +117,19 @@ producer() {
     { cat "$TMP/out/enable-$name.log"; exit 1; }
 }
 
-# `bind <plugin> <operator>`: the operator's outputs go to the plugin.
+# `bind <plugin> <relay>`: the relay's outputs go to the plugin.
 bind() {
-  flz plugin bind "$1" --operator_id "$2" --hook=on_output >>"$TMP/out/bind-$1.log" 2>&1 ||
+  flz plugin bind "$1" --relay_id "$2" --hook=on_output >>"$TMP/out/bind-$1.log" 2>&1 ||
     { cat "$TMP/out/bind-$1.log"; exit 1; }
 }
 
-# `send_all <operator> <from> <to> [prefix]`: one input per number, all in one
+# `send_all <relay> <from> <to> [prefix]`: one input per number, all in one
 # confirming batch (one `flz` call per input costs a round trip each).
 send_all() {
   local accepted
   accepted=$(flzvm rpc "
     inputs = for i <- $2..$3, do: {\"${4:-m}-#{i}\", %{}}
-    verdicts = Flezha.Service.OperatorManager.send_io_confirming_many(\"$1\", \"default\", inputs)
+    verdicts = Flezha.Service.RelayManager.send_io_confirming_many(\"$1\", \"default\", inputs)
     IO.puts(Enum.count(verdicts, &(&1 == :ok)))" 2>&1 | tail -1)
   [ "$accepted" = $(($3 - $2 + 1)) ] || { say "sending $2..$3 to $1: $accepted accepted"; return 1; }
 }

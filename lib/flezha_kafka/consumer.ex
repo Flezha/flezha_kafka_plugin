@@ -2,15 +2,15 @@ defmodule FlezhaKafka.Consumer do
   @moduledoc """
   The `kafka_consumer` provider: one member of the Kafka consumer group
   `group_id` for `topics`, injecting every record of the partitions assigned to
-  it as one input on the operator's entry channel.
+  it as one input on the relay's entry channel.
 
   Each binding runs one `FlezhaKafka.Consumer.Member`, which starts the group
   and reads its lag; the group runs one `FlezhaKafka.Consumer.Partition` per
-  assigned partition, which hands each fetched batch to the operator and commits
-  its offsets to Kafka as the operator's input durability says. Several
-  operators bound to consumers of one `group_id` split the partitions, on any
+  assigned partition, which hands each fetched batch to the relay and commits
+  its offsets to Kafka as the relay's input durability says. Several
+  relays bound to consumers of one `group_id` split the partitions, on any
   controllers. One group member per binding: not shareable, and refused on a
-  partitioned operator, whose members a record's key decides between. Options,
+  partitioned relay, whose members a record's key decides between. Options,
   the input's metadata, delivery, health and telemetry:
   `docs/plugins/kafka_consumer.md` in the core.
   """
@@ -70,7 +70,7 @@ defmodule FlezhaKafka.Consumer do
             default: 5_000,
             min: 1,
             doc:
-              "Longest the offsets of taken records wait to be committed, unless the operator's input is durable"
+              "Longest the offsets of taken records wait to be committed, unless the relay's input is durable"
           ],
           lag_interval_ms: [
             type: :int,
@@ -139,7 +139,7 @@ defmodule FlezhaKafka.Consumer do
   end
 
   @doc """
-  What `flz operator info` shows beneath the plugin: the group, the topics, the
+  What `flz relay info` shows beneath the plugin: the group, the topics, the
   assignment and lag the last read saw, each partition as `topic/partition`,
   and the verdict.
   """

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The Kafka package's producer and consumer against a real controller release and
 # the core's dev broker: it packages the plugin, installs it into a release under a temporary
-# plugin root, starts the controller and the relay fixture's runner, and checks
+# plugin root, starts the controller and the e2e runner, and checks
 # what a user would see. PASS or FAIL per check; exits non-zero on any failure.
 #
 #   docker compose -f ../../docker/dev/docker-compose.yml up -d kafka   # in the core
@@ -51,7 +51,7 @@ package_plugin
 install_plugin
 say "starting the controller with the package"
 start_controller
-build_relay
+build_runner
 start_runner runner default
 
 check_a() {
@@ -66,12 +66,12 @@ check_a() {
 
 check_b() {
   local topic=e2e_plain_$RUN
-  start_operator echo plain
+  start_relay echo plain
   producer plain_out "$topic"
   bind plain_out plain
   send_all plain 1 100 plain
   if await_count "$topic" 100; then
-    pass b "100 outputs of an at-least-once operator are 100 records of $topic"
+    pass b "100 outputs of an at-least-once relay are 100 records of $topic"
   else
     fail b "$topic holds $(topic_values "$topic" | sort -u | wc -l) of 100"
   fi
@@ -79,14 +79,14 @@ check_b() {
 
 check_c() {
   local topic=e2e_once_$RUN headers
-  start_operator echo_once once
+  start_relay echo_once once
   producer once_out "$topic" 'Xheaders={"source":"e2e"}'
   bind once_out once
   send_all once 1 100 once
   headers=$(topic_headers "$topic" | head -1)
   if await_count "$topic" 100 && grep -q "flezha.dedup_key:" <<<"$headers" &&
     grep -q "flz.epoch:" <<<"$headers" && grep -q "source:e2e" <<<"$headers"; then
-    pass c "100 outputs of an effectively-once operator, each with its identity headers: ${headers:0:160}"
+    pass c "100 outputs of an effectively-once relay, each with its identity headers: ${headers:0:160}"
   else
     fail c "$topic holds $(topic_values "$topic" | sort -u | wc -l) of 100; headers: $headers"
   fi
@@ -94,8 +94,8 @@ check_c() {
 
 check_d() {
   local topic=e2e_shared_$RUN workers
-  start_operator echo share_a
-  start_operator echo share_b
+  start_relay echo share_a
+  start_relay echo share_b
   producer shared_out "$topic"
   bind shared_out share_a
   bind shared_out share_b
@@ -103,7 +103,7 @@ check_d() {
   send_all share_b 1 50 b
   workers=$(flzvm rpc 'IO.inspect(length(Registry.select(FlezhaKafka.Producer.WorkerSup.Registry, [{{{:_, "shared_out", :_}, :_, :_}, [], [true]}])))' 2>&1)
   if await_count "$topic" 100 && [ "$workers" = 1 ]; then
-    pass d "two operators bound to one plugin produce through one worker: 100 records"
+    pass d "two relays bound to one plugin produce through one worker: 100 records"
   else
     fail d "$topic holds $(topic_values "$topic" | sort -u | wc -l) of 100, $workers worker(s)"
   fi
@@ -111,7 +111,7 @@ check_d() {
 
 check_e() {
   local topic=e2e_pause_$RUN
-  start_operator echo_once paused
+  start_relay echo_once paused
   producer pause_out "$topic"
   bind pause_out paused
   send_all paused 1 20 p
@@ -122,7 +122,7 @@ check_e() {
   sleep 10
   "${COMPOSE[@]}" unpause kafka >/dev/null 2>&1
   if await_count "$topic" 70 120; then
-    pass e "an effectively-once operator lost nothing across a 10 s broker pause: 70 distinct records"
+    pass e "an effectively-once relay lost nothing across a 10 s broker pause: 70 distinct records"
   else
     fail e "$topic holds $(topic_values "$topic" | sort -u | wc -l) of 70 after the pause"
   fi
@@ -130,12 +130,12 @@ check_e() {
 
 # ---------- the consumer ----------
 
-# `consumer <name> <topic> <operator>`: a kafka_consumer plugin reading `topic`
-# from its beginning onto the operator's entry channel `in`.
+# `consumer <name> <topic> <relay>`: a kafka_consumer plugin reading `topic`
+# from its beginning onto the relay's entry channel `in`.
 consumer() {
   flz plugin enable "$1" kafka_consumer "Xhosts=$BROKER" "Xtopics=$2" "Xgroup_id=e2e_$1_$RUN" \
     Xchannel=in Xstart_at=beginning >>"$TMP/out/enable-$1.log" 2>&1 &&
-    flz plugin bind "$1" --operator_id "$3" --hook=on_terminate >>"$TMP/out/bind-$1.log" 2>&1 ||
+    flz plugin bind "$1" --relay_id "$3" --hook=on_terminate >>"$TMP/out/bind-$1.log" 2>&1 ||
     { cat "$TMP/out/enable-$1.log" "$TMP/out/bind-$1.log"; exit 1; }
 }
 
@@ -150,32 +150,32 @@ feed() {
 check_f() {
   local in=e2e_cin_$RUN out=e2e_cout_$RUN
   feed "$in" 1 100 f
-  start_operator echo relay_plain
-  producer relay_plain_out "$out"
-  bind relay_plain_out relay_plain
-  consumer relay_plain_in "$in" relay_plain
+  start_relay echo pass_plain
+  producer pass_plain_out "$out"
+  bind pass_plain_out pass_plain
+  consumer pass_plain_in "$in" pass_plain
   if await_count "$out" 100 &&
-    until_ok 30 "grep -q 'assignment: $in/0' <<<\"\$(flz operator info relay_plain)\""; then
-    pass f "a plain operator consumed 100 records of $in into $out; operator info: $(flz operator info relay_plain | grep -m1 'lag:')"
+    until_ok 30 "grep -q 'assignment: $in/0' <<<\"\$(flz relay info pass_plain)\""; then
+    pass f "a plain relay consumed 100 records of $in into $out; relay info: $(flz relay info pass_plain | grep -m1 'lag:')"
   else
-    fail f "$out holds $(topic_values "$out" | sort -u | wc -l) of 100; $(flz operator info relay_plain 2>&1 | tail -3)"
+    fail f "$out holds $(topic_values "$out" | sort -u | wc -l) of 100; $(flz relay info pass_plain 2>&1 | tail -3)"
   fi
 }
 
 check_g() {
   local in=e2e_kin_$RUN out=e2e_kout_$RUN
   feed "$in" 1 1000 g
-  start_operator echo_once relay_once
-  producer relay_once_out "$out"
-  bind relay_once_out relay_once
-  consumer relay_once_in "$in" relay_once
+  start_relay echo_once pass_once
+  producer pass_once_out "$out"
+  bind pass_once_out pass_once
+  consumer pass_once_in "$in" pass_once
   await_count "$out" 1 || { fail g "nothing reached $out"; return; }
   say "killing the controller mid-way"
   pkill -KILL -f "beam.smp.* $FLEZHA_NODE_NAME@"
   feed "$in" 1001 2000 g
   start_controller
   if await_count "$out" 2000 180; then
-    pass g "an effectively-once operator lost nothing across a controller kill: 2000 distinct records of $in in $out"
+    pass g "an effectively-once relay lost nothing across a controller kill: 2000 distinct records of $in in $out"
   else
     fail g "$out holds $(topic_values "$out" | sort -u | wc -l) of 2000 after the kill"
   fi

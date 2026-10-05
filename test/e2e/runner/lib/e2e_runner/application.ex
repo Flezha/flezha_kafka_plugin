@@ -1,4 +1,4 @@
-defmodule Relay.Application do
+defmodule E2eRunner.Application do
   @moduledoc """
   The runner: `mix run --no-halt -- <namespace>` serves the two factories in that
   namespace over the controller's Unix socket, and stops when its standard input
@@ -12,7 +12,8 @@ defmodule Relay.Application do
     watch_stdin()
 
     children = [
-      {Flezha.SDK, namespace: namespace, operators: [Relay.Echo, Relay.EchoOnce], transport: :uds}
+      {Flezha.SDK,
+       namespace: namespace, relays: [E2eRunner.Echo, E2eRunner.EchoOnce], transport: :uds}
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one)

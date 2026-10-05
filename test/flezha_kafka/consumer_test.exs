@@ -1,7 +1,7 @@
 defmodule FlezhaKafka.ConsumerTest do
   @moduledoc """
   The consumer without a broker: its options and refusals, a fetched record set
-  through `Partition.handle_message_set/2` against a stand-in operator, and the
+  through `Partition.handle_message_set/2` against a stand-in relay, and the
   verdicts its health draws from the member's facts.
   """
 
@@ -24,7 +24,7 @@ defmodule FlezhaKafka.ConsumerTest do
     host = %{
       overwatcher_pid: self(),
       source_namespace: :default,
-      source_operator_id: "op",
+      source_relay_id: "op",
       source_plugin_id: "kin",
       subscribed_extensions: []
     }
@@ -53,7 +53,7 @@ defmodule FlezhaKafka.ConsumerTest do
     end
 
     test "a member of a partition group is refused" do
-      assert {:error, {:partitioned_host, %{provider: "kafka_consumer", operator: "op"}}} =
+      assert {:error, {:partitioned_host, %{provider: "kafka_consumer", relay: "op"}}} =
                prepare(Map.merge(@base, %{partition_count: 2, partition_index: 0}))
     end
 
@@ -167,7 +167,7 @@ defmodule FlezhaKafka.ConsumerTest do
       assert age >= 2_000
     end
 
-    test "what operator info shows is text the CLI can print" do
+    test "what relay info shows is text the CLI can print" do
       opts = %{
         failure_threshold: 3,
         idle_after_ms: 0,

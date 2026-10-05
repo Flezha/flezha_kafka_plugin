@@ -2,10 +2,10 @@ defmodule FlezhaKafka.Consumer.Partition do
   @moduledoc """
   The fork's `KafkaEx.Consumer.GenConsumer` callback module for one assigned
   partition of a `FlezhaKafka.Consumer`: each fetched record set becomes one
-  batch of inputs handed to the operator with `Host.inject_many/4` in
+  batch of inputs handed to the relay with `Host.inject_many/4` in
   `:verdict` mode.
 
-  A batch the operator took in full is committed at once when its input is
+  A batch the relay took in full is committed at once when its input is
   durable (`:sync_commit`), and by the timer when it is not (`:async_commit`).
   A batch with any refusal commits nothing: the consumer exits, its supervisor
   starts it again, and it fetches from the last committed offset. The member is
@@ -22,7 +22,7 @@ defmodule FlezhaKafka.Consumer.Partition do
   @provider :kafka_consumer
 
   # How long a revoked or stopped consumer is given to finish its batch, and the
-  # inject deadline below it: a batch waiting on the operator ends refused, so
+  # inject deadline below it: a batch waiting on the relay ends refused, so
   # uncommitted, before the supervisor would kill it.
   @shutdown_ms 2_500
   @inject_timeout_ms 2_000

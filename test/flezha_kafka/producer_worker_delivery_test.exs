@@ -159,10 +159,10 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
       record_set.producer_id
     end
 
-    defp start_relay_worker(opts) do
+    defp start_forward_worker(opts) do
       {pid, _script} =
         start_worker(
-          opts ++ [send_fn: Fakes.relay_send_fn(self()), linger_ms: 0, max_in_flight: 5]
+          opts ++ [send_fn: Fakes.forward_send_fn(self()), linger_ms: 0, max_in_flight: 5]
         )
 
       pid
@@ -170,7 +170,7 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
 
     test "five batches are outstanding at once with consecutive sequences" do
       attach(:produce_ok)
-      pid = start_relay_worker([])
+      pid = start_forward_worker([])
 
       window = fill_window(pid, 5)
       assert Enum.map(window, &elem(&1, 1)) == [0, 1, 2, 3, 4]
@@ -189,7 +189,7 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
     end
 
     test "without idempotence exactly one batch is outstanding" do
-      pid = start_relay_worker(idempotent: false, max_in_flight: 1)
+      pid = start_forward_worker(idempotent: false, max_in_flight: 1)
 
       :ok = ProducerWorker.cast_enqueue(pid, "a", %{})
       assert_receive {:dispatched, ref, request}, 1_000
@@ -204,7 +204,7 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
     end
 
     test "a head failure resends the whole tail behind it, in order" do
-      pid = start_relay_worker([])
+      pid = start_forward_worker([])
 
       [{ref1, 0}, {ref2, 1}, {ref3, 2}] = fill_window(pid, 3)
 
@@ -223,7 +223,7 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
     end
 
     test "a tail failure does not resend the head" do
-      pid = start_relay_worker([])
+      pid = start_forward_worker([])
 
       [{ref1, 0}, {ref2, 1}] = fill_window(pid, 2)
 
@@ -237,7 +237,7 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
     end
 
     test "a timed-out head waits for the tail's outcome, then both go out in order" do
-      pid = start_relay_worker([])
+      pid = start_forward_worker([])
 
       [{ref1, 0}, {ref2, 1}] = fill_window(pid, 2)
 
@@ -260,7 +260,7 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
         {:ok, %{producer_id: 1000 + :counters.get(ids, 1), producer_epoch: 0}}
       end
 
-      pid = start_relay_worker(init_producer_id_fn: init_producer_id_fn)
+      pid = start_forward_worker(init_producer_id_fn: init_producer_id_fn)
 
       [{ref1, 0}, {_ref2, 1}, {_ref3, 2}] = fill_window(pid, 3)
 
@@ -278,7 +278,7 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
 
     test "worker death rewinds the whole window to the head of the queue, oldest first" do
       attach(:worker_swapped)
-      pid = start_relay_worker([])
+      pid = start_forward_worker([])
 
       _window = fill_window(pid, 3)
 
@@ -301,7 +301,7 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
       cell_id = {rc, "task", "k1"}
       :ok = TestHelpers.stub_outbox_owner(cell_id)
 
-      pid = start_relay_worker([])
+      pid = start_forward_worker([])
 
       for seq <- 1..3 do
         :ok =

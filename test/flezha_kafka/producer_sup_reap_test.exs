@@ -1,7 +1,7 @@
 defmodule FlezhaKafka.ProducerSupReapTest do
   @moduledoc """
   `WorkerSup.ensure_worker/5` dead and parked-pid reaping, in the Kafka
-  producer's own family. A recovered operator must start a fresh, healthy
+  producer's own family. A recovered relay must start a fresh, healthy
   producer rather than re-attach to a worker that cannot drain.
 
   The rule the `reusable?` argument carries is the spec's "a provider worker

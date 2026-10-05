@@ -19,7 +19,7 @@ defmodule FlezhaKafka.ProducerWorkerTierRecordsTest do
   describe "effectively-once tier records" do
     @tier_metadata %{
       "channel" => "out",
-      "flz.cell" => "MarketOperator/s1/k1",
+      "flz.cell" => "MarketRelay/s1/k1",
       "flz.seq" => "42.0",
       "flz.epoch" => "1",
       "flz.key" => "BTC/1m/1720000000",
@@ -38,13 +38,13 @@ defmodule FlezhaKafka.ProducerWorkerTierRecordsTest do
 
       assert [
                {"flz.key", "BTC/1m/1720000000"},
-               {"flz.cell", "MarketOperator/s1/k1"},
+               {"flz.cell", "MarketRelay/s1/k1"},
                {"flz.seq", "42.0"},
                {"flz.epoch", "1"},
                {"flezha.dedup_key", dedup}
              ] = Enum.map(record.headers, &{&1.key, &1.value})
 
-      assert dedup == "MarketOperator/s1/k1/42.0/1"
+      assert dedup == "MarketRelay/s1/k1/42.0/1"
       refute dedup =~ "processor_"
       refute dedup =~ "compute_engine_"
     end
@@ -97,7 +97,7 @@ defmodule FlezhaKafka.ProducerWorkerTierRecordsTest do
       assert :ok =
                ProducerWorker.enqueue(pid, "candle", %{
                  "channel" => "ohlc_out",
-                 "flz.cell" => "MarketOperator/ohlc/BTC-USD",
+                 "flz.cell" => "MarketRelay/ohlc/BTC-USD",
                  "flz.seq" => "42.0",
                  "flz.key" => "BTC/USD"
                })

@@ -9,7 +9,7 @@ defmodule FlezhaKafka.Test.Fakes do
   `{:return, value}`, `{:return_fn, fun}`, or, once the list runs out,
   `:never` — where a value may be `:never` (a dispatch that is never answered,
   so the batch stays in flight) or `{:delayed, value, ms}` (answered after
-  `ms`). `relay_send_fn/1` hands every dispatch to the test as
+  `ms`). `forward_send_fn/1` hands every dispatch to the test as
   `{:dispatched, ref, request}` instead, so a test can answer any batch in any
   order with `answer/3`.
   """
@@ -197,7 +197,7 @@ defmodule FlezhaKafka.Test.Fakes do
     end
   end
 
-  def relay_send_fn(test_pid) do
+  def forward_send_fn(test_pid) do
     fn _worker, request, _node_selector ->
       ref = make_ref()
       send(test_pid, {:dispatched, ref, request})

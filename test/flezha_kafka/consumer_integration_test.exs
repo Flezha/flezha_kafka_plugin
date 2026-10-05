@@ -214,7 +214,7 @@ defmodule FlezhaKafka.ConsumerIntegrationTest do
       assert log =~ "partition=0 offset=0 records=5 ingest refused: {:error, :parked}"
     end
 
-    test "lag rises while the operator does not take a batch", %{client: client} do
+    test "lag rises while the relay does not take a batch", %{client: client} do
       topic = new_topic(client, 1)
       {:ok, _} = API.produce(client, topic, 0, for(i <- 1..1_000, do: %{value: "#{i}"}))
       lag_event = [:flezha, :plugin, :kafka_consumer, :lag]

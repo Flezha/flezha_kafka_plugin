@@ -4,7 +4,7 @@ defmodule FlezhaKafka.Producer do
   each record to a Kafka topic, with retries, idempotence, batching, a bounded
   queue, compression and active metadata refresh on transient broker errors.
 
-  Every operator bound to one plugin on a controller casts its records to ONE
+  Every relay bound to one plugin on a controller casts its records to ONE
   worker per topic (`FlezhaKafka.ProducerWorker`), which picks each record's
   partition and keeps a lane per partition. The dispatch holds a
   delivery-guaranteed output for the worker to confirm or park; a plain output
@@ -161,7 +161,7 @@ defmodule FlezhaKafka.Producer do
   @impl true
   def init_provider(opts) do
     # The plugin's own name where a host gives one, so a shared copy and the
-    # operators bound to it name one producer.
+    # relays bound to it name one producer.
     plugin_id =
       opts.plugin_id || opts[:source_plugin_id] ||
         "default-#{System.unique_integer([:positive])}"
@@ -186,7 +186,7 @@ defmodule FlezhaKafka.Producer do
   defp reserved_header?(name), do: String.starts_with?(name, "flz.") or name == "flezha.dedup_key"
 
   @doc """
-  One producer worker per `{namespace, plugin_id, topic}`: the operators bound to
+  One producer worker per `{namespace, plugin_id, topic}`: the relays bound to
   the plugin share it, and it keeps a lane per partition. Two plugins on one
   cluster share a broker client without sharing a queue.
 

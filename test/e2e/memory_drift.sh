@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Controller memory under a steady Kafka workload: the load test the core ran as
 # its `kafka` and `combined` workloads before the producer became this package.
-# A release with the package, the relay runner, one operator whose every input
+# A release with the package, the e2e runner, one relay whose every input
 # the producer publishes (`on_input`) and, for `combined`, a websocket source
 # feeding it; inputs at a fixed rate; the BEAM's total memory sampled over the
 # run and fitted to a line. Prints the samples and the slope, and fails when the
@@ -36,19 +36,19 @@ say_release "$REL"
 package_plugin
 install_plugin
 start_controller
-build_relay
+build_runner
 start_runner runner default
-start_operator echo drift
+start_relay echo drift
 
 producer drift_out "memory_drift_$RUN" Xlinger_ms=10 Xqueue_max=10000
-flz plugin bind drift_out --operator_id drift --hook=on_input >/dev/null 2>&1 ||
+flz plugin bind drift_out --relay_id drift --hook=on_input >/dev/null 2>&1 ||
   { say "the bind failed"; exit 1; }
 
 if [ "$WORKLOAD" = combined ]; then
   [ -n "${MEMORY_DRIFT_WS_URI:-}" ] || { say "combined needs MEMORY_DRIFT_WS_URI"; exit 1; }
-  flz plugin enable drift_ws operator_websocket "Xuri=$MEMORY_DRIFT_WS_URI" \
+  flz plugin enable drift_ws relay_websocket "Xuri=$MEMORY_DRIFT_WS_URI" \
     "Xpost_connect={\"payload\":{\"type\":\"text\",\"message\":${MEMORY_DRIFT_WS_SUBSCRIBE:-\"{}\"}}}" \
-    --operator_id drift >/dev/null 2>&1 || { say "the websocket source did not enable"; exit 1; }
+    --relay_id drift >/dev/null 2>&1 || { say "the websocket source did not enable"; exit 1; }
 fi
 
 say "workload=$WORKLOAD duration=${DURATION_S}s sample=${SAMPLE_S}s rate=${RATE}/s"
@@ -56,7 +56,7 @@ say "workload=$WORKLOAD duration=${DURATION_S}s sample=${SAMPLE_S}s rate=${RATE}
   i=0
   while :; do
     i=$((i + 1))
-    flz operator send drift --text "$(printf 'payload-%064d' "$i")" >/dev/null 2>&1
+    flz relay send drift --text "$(printf 'payload-%064d' "$i")" >/dev/null 2>&1
     sleep "$(python3 -c "print(1 / $RATE)")"
   done
 ) &

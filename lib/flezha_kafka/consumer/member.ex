@@ -120,7 +120,7 @@ defmodule FlezhaKafka.Consumer.Member do
   def handle_info({:DOWN, ref, :process, _child, reason}, %{read: {_pid, ref}} = state),
     do: {:noreply, settle(%{state | read: nil}, {:error, {:exit, reason}})}
 
-  # The operator this member feeds is gone.
+  # The relay this member feeds is gone.
   def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
     case Watch.down(state.watch, ref) do
       {[:host], _watch} -> {:stop, :normal, state}
@@ -305,7 +305,7 @@ defmodule FlezhaKafka.Consumer.Member do
 
   defp settle(state, {:error, _reason}), do: state
 
-  @doc "A partition as the text a label or `flz operator info` shows: `topic/partition`."
+  @doc "A partition as the text a label or `flz relay info` shows: `topic/partition`."
   @spec partition_name({binary(), non_neg_integer()}) :: binary()
   def partition_name({topic, partition}), do: "#{topic}/#{partition}"
 

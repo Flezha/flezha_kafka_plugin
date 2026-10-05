@@ -194,7 +194,7 @@ defmodule FlezhaKafka.ProducerTest do
       prepare_and_activate(build_opts(plugin_id, 0, %{channel: "2"}))
 
     ctx = %Ctx.IO{
-      operator_id: "p",
+      relay_id: "p",
       namespace: "n",
       message: "trade_payload",
       metadata: %{"channel" => "4"}
@@ -212,7 +212,7 @@ defmodule FlezhaKafka.ProducerTest do
       prepare_and_activate(build_opts(plugin_id, 0, %{channel: "2"}))
 
     ctx = %Ctx.IO{
-      operator_id: "p",
+      relay_id: "p",
       namespace: "n",
       message: "untagged",
       metadata: %{}
@@ -515,7 +515,7 @@ defmodule FlezhaKafka.ProducerTest do
         %{state | send_fn: send_fn}
       end)
 
-      ctx = %Ctx.IO{operator_id: "p", namespace: "n", message: "hello", metadata: %{}}
+      ctx = %Ctx.IO{relay_id: "p", namespace: "n", message: "hello", metadata: %{}}
       assert {:ok, ^ctx} = Producer.on_input(ctx, opts)
       assert {:ok, ^ctx} = Producer.on_output(ctx, opts)
 
@@ -551,7 +551,7 @@ defmodule FlezhaKafka.ProducerTest do
         }
       end)
 
-      ctx = %Ctx.IO{operator_id: "p", namespace: "n", message: "x", metadata: %{}}
+      ctx = %Ctx.IO{relay_id: "p", namespace: "n", message: "x", metadata: %{}}
 
       {elapsed_us, result} =
         :timer.tc(fn -> Producer.on_output(ctx, opts) end)
@@ -612,7 +612,7 @@ defmodule FlezhaKafka.ProducerTest do
 
       on_exit(fn -> :telemetry.detach(handler_id) end)
 
-      ctx = %Ctx.IO{operator_id: "p", namespace: "n", message: "x", metadata: %{}}
+      ctx = %Ctx.IO{relay_id: "p", namespace: "n", message: "x", metadata: %{}}
       assert {:ok, ^ctx} = Producer.on_output(ctx, opts)
 
       assert_receive {:telemetry, [:flezha, :plugin, :kafka, :failed], _,

@@ -36,7 +36,7 @@ defmodule FlezhaKafka.OptionsTest do
     {pid, _script} =
       Fakes.start_worker(
         Keyword.merge(
-          [linger_ms: 0, idempotent: false, send_fn: Fakes.relay_send_fn(self())],
+          [linger_ms: 0, idempotent: false, send_fn: Fakes.forward_send_fn(self())],
           opts
         )
       )
@@ -158,7 +158,7 @@ defmodule FlezhaKafka.OptionsTest do
         )
 
       ctx = %Ctx.IO{
-        operator_id: "o",
+        relay_id: "o",
         namespace: :default,
         message: "m",
         metadata: %{"flz.key" => "k"}
@@ -170,13 +170,13 @@ defmodule FlezhaKafka.OptionsTest do
       refute_received _
     end
 
-    test "a shared copy and its operators name one worker; namespaces and members do not" do
+    test "a shared copy and its relays name one worker; namespaces and members do not" do
       shared = key(%{source_namespace: "default", source_plugin_id: "alerts"})
 
       assert key(%{
                source_namespace: "default",
                source_plugin_id: "alerts",
-               source_operator_id: "op_a"
+               source_relay_id: "op_a"
              }) ==
                shared
 

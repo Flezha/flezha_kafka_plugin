@@ -1,6 +1,6 @@
 defmodule FlezhaKafka.ProducerWorker do
   @moduledoc """
-  One GenServer per `(namespace, plugin_id, topic)`: every operator bound to the
+  One GenServer per `(namespace, plugin_id, topic)`: every relay bound to the
   plugin casts its records here, and the worker chooses each record's partition
   as it takes the record off its mailbox. Per partition it keeps a lane
   (`FlezhaKafka.ProducerWorker.Lanes`) with a bounded outbound queue, linger

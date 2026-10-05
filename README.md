@@ -1,13 +1,13 @@
 # flezha_kafka
 
 The Kafka plugin for Flezha: a plugin package, `flezha_kafka`, with two providers.
-`kafka_producer` produces the records passing through an operator to a Kafka topic. Every
-operator bound to one plugin on a controller casts its records to one worker per topic, which
+`kafka_producer` produces the records passing through a relay to a Kafka topic. Every
+relay bound to one plugin on a controller casts its records to one worker per topic, which
 chooses each record's partition as Kafka's Java client does (`murmur2` of the key), batches,
 compresses with gzip, retries, keeps an idempotent producer session per partition, and confirms
 or parks a delivery-guaranteed output. `kafka_consumer` joins a consumer group for its topics
 and injects every record of its share of the partitions as one input, committing the group's
-offsets as the operator's input durability says. Both are built on the `kafka_ex` client.
+offsets as the relay's input durability says. Both are built on the `kafka_ex` client.
 
 The contracts (options, partitioning, headers, delivery, commits, health, telemetry) are the
 core's pages `docs/plugins/kafka_producer.md` and `docs/plugins/kafka_consumer.md`; this
@@ -30,7 +30,7 @@ lib/flezha_kafka/consumer/partition.ex      one partition's batches: inputs, ver
 test/flezha_kafka/                          unit tests against a scripted client, the integration
                                             test against a broker, the catalogue and docs checks
 test/support/                               the scripted client and the stand-ins for a controller
-test/e2e/                                   the relay fixture (an Elixir SDK runner), run.sh and
+test/e2e/                                   the e2e runner (an Elixir SDK runner), run.sh and
                                             memory_drift.sh
 ```
 
@@ -49,7 +49,7 @@ RUSTLER_SKIP_COMPILATION=true mix format --check-formatted
 ```
 
 `mix test` runs with `--no-start`: no controller boots, and the tests start the providers'
-worker families and stand in for the broker and the operator. The catalogue test fails when a
+worker families and stand in for the broker and the relay. The catalogue test fails when a
 code the producer refuses with is missing from the core's `flz_transport/errors.json`, and the
 docs test when the option table of `docs/plugins/kafka_producer.md` or
 `docs/plugins/kafka_consumer.md` differs from its provider's declaration, printing the table to
@@ -94,7 +94,7 @@ flz controller stop && flz controller start
 flz plugin list --installed
 ```
 
-Then enable `kafka_producer` or `kafka_consumer` on an operator as its page shows.
+Then enable `kafka_producer` or `kafka_consumer` on a relay as its page shows.
 
 ## The end-to-end run
 
@@ -104,12 +104,12 @@ Then enable `kafka_producer` or `kafka_consumer` on an operator as its page show
 the dev broker (`docker compose -f ../../docker/dev/docker-compose.yml up -d kafka`, which
 listens for the host on `localhost:19092`). It first starts the controller without the
 package and checks the provider is unknown, then packages the plugin, installs it under a
-temporary plugin root, starts the controller and the relay fixture's runner, and checks:
-`kafka_ex` started no worker of its own and waits 5 s per request; a plain operator consumes
-100 records of one topic and produces them to another; 100 outputs of an at-least-once operator and of an
-effectively-once one are 100 records, only the latter with its identity headers; two operators
-bound to one plugin produce through one worker; and an effectively-once operator loses
-nothing across a 10 s `docker compose pause kafka`; and an effectively-once operator consuming
+temporary plugin root, starts the controller and the e2e runner, and checks:
+`kafka_ex` started no worker of its own and waits 5 s per request; a plain relay consumes
+100 records of one topic and produces them to another; 100 outputs of an at-least-once relay and of an
+effectively-once one are 100 records, only the latter with its identity headers; two relays
+bound to one plugin produce through one worker; and an effectively-once relay loses
+nothing across a 10 s `docker compose pause kafka`; and an effectively-once relay consuming
 a topic loses no record across a killed and restarted controller. It prints PASS or FAIL per check, keeps
 its logs when one fails, and exits non-zero on any failure.
 

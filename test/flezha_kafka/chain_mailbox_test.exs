@@ -1,6 +1,6 @@
 defmodule FlezhaKafka.ChainMailboxTest do
   @moduledoc """
-  The chain in front of a slow broker: an operator's host process runs the
+  The chain in front of a slow broker: a relay's host process runs the
   producer's hook for every input at a steady rate while the worker behind it
   takes 50 ms per Produce. The hook only holds and casts, so the host's mailbox
   stays empty whatever the broker does. The core's `mix bench.extension` ran
@@ -34,7 +34,7 @@ defmodule FlezhaKafka.ChainMailboxTest do
       id: "chain",
       provider: Producer,
       namespace: "default",
-      operator_id: "host",
+      relay_id: "host",
       opts: %{hosts: "localhost:19092", topic: Fakes.topic(), partition: 0, idempotent: false},
       hooks: [{:on_input, [position: 0]}]
     }
@@ -82,7 +82,7 @@ defmodule FlezhaKafka.ChainMailboxTest do
       {:input, message} ->
         _ =
           Extension.run(table, :on_input, %Ctx.IO{
-            operator_id: "host",
+            relay_id: "host",
             namespace: :default,
             message: message,
             metadata: %{}
