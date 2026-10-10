@@ -13,6 +13,7 @@ defmodule FlezhaKafka.Connection do
   """
 
   alias Flezha.Plugin.ProviderBehaviour
+  alias Flezha.Plugin.ProviderBehaviour.Options
   alias KafkaEx.Auth.Config, as: AuthConfig
 
   import ProviderBehaviour, only: [parse_enum: 3, refuse_value: 2]
@@ -25,11 +26,11 @@ defmodule FlezhaKafka.Connection do
 
   @rows [
     hosts: [
-      type: :any,
+      type: :names,
       required: true,
-      doc: "`{host, port}` list, or a comma-separated string"
+      doc: "`host:port` names, comma-separated or as a list"
     ],
-    auth: [type: :any, doc: "SASL configuration, as a `KafkaEx.Auth.Config` or a map"],
+    auth: [type: :map, doc: "SASL configuration, as a `KafkaEx.Auth.Config` or a map"],
     # The credential as given, held in memory so a client start and every
     # reconnect on this node authenticate with the real secret while the
     # stored opts carry only the placeholder. Never persisted, so a handover
@@ -40,7 +41,7 @@ defmodule FlezhaKafka.Connection do
       doc: "Environment variable holding the SASL password, preferred over an inline one"
     ],
     use_ssl: [type: :bool, doc: "TLS to the brokers"],
-    ssl_options: [type: :any, doc: "Erlang `:ssl` options for that connection"]
+    ssl_options: [type: :list, doc: "Erlang `:ssl` options for that connection"]
   ]
 
   @doc "The connection's option rows, for a provider's declaration."
@@ -93,6 +94,22 @@ defmodule FlezhaKafka.Connection do
     ]
 
   @doc """
+  The `hosts` row's conversion, for a provider's `convert_value/2`. A prepared
+  plugin's stored options carry `hosts` as `{host, port}` tuples, and preparing
+  it again converts them again, so that list is kept as it is; anything else is
+  converted by the `names` row.
+  """
+  @spec convert_hosts(term()) :: {:ok, term()} | {:error, term()}
+  def convert_hosts(hosts) do
+    if is_list(hosts) and hosts != [] and Enum.all?(hosts, &host_tuple?/1),
+      do: {:ok, hosts},
+      else: Options.convert_row(:hosts, hosts, @rows)
+  end
+
+  defp host_tuple?({host, port}), do: is_binary(host) and is_integer(port)
+  defp host_tuple?(_), do: false
+
+  @doc """
   The `auth` row's conversion, for a provider's `convert_value/2`.
   `KafkaEx.Auth.Config.new/1` takes only its four keys and drops the rest, so a
   misspelled key is refused here rather than read as a missing credential, and
@@ -131,15 +148,12 @@ defmodule FlezhaKafka.Connection do
 
   defp redact(opts), do: opts
 
-  defp parse_hosts(hosts) when is_binary(hosts) do
+  defp parse_hosts(hosts) when is_list(hosts) do
     hosts
-    |> String.split(",")
     |> Enum.reduce_while({:ok, []}, fn host, {:ok, acc} ->
-      with [h, port] <- String.split(host, ":"),
-           {port, ""} <- Integer.parse(port) do
-        {:cont, {:ok, [{h, port} | acc]}}
-      else
-        _ -> {:halt, refuse_value(:hosts, hosts)}
+      case parse_host(host) do
+        {:ok, parsed} -> {:cont, {:ok, [parsed | acc]}}
+        refusal -> {:halt, refusal}
       end
     end)
     |> case do
@@ -148,5 +162,18 @@ defmodule FlezhaKafka.Connection do
     end
   end
 
-  defp parse_hosts(hosts), do: {:ok, hosts}
+  defp parse_hosts(hosts), do: refuse_value(:hosts, hosts)
+
+  defp parse_host({_host, _port} = host), do: {:ok, host}
+
+  defp parse_host(host) when is_binary(host) do
+    with [h, port] when h != "" <- String.split(host, ":"),
+         {port, ""} <- Integer.parse(port) do
+      {:ok, {h, port}}
+    else
+      _ -> refuse_value(:hosts, host)
+    end
+  end
+
+  defp parse_host(host), do: refuse_value(:hosts, host)
 end

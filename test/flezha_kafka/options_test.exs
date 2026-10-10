@@ -11,6 +11,7 @@ defmodule FlezhaKafka.OptionsTest do
 
   alias Flezha.Plugin.Extension.Ctx
   alias Flezha.Plugin.Provider.WorkerSup
+  alias Flezha.Plugin.ProviderBehaviour.Decl
   alias Flezha.Plugin.ProviderBehaviour.Options, as: ProviderOptions
   alias Flezha.State.Outbox
   alias FlezhaKafka.Producer
@@ -140,6 +141,39 @@ defmodule FlezhaKafka.OptionsTest do
       assert {:ok, %{headers: %{"source" => "flezha"}}} =
                prepare(%{headers: %{"source" => "flezha"}})
     end
+  end
+
+  describe "hosts" do
+    test "a comma-separated string, a list of names and a {host, port} list prepare alike" do
+      tuples = [{"kafka1", 9092}, {"kafka2", 9093}]
+
+      for hosts <- ["kafka1:9092, kafka2:9093", ["kafka1:9092", "kafka2:9093"], tuples] do
+        assert {:ok, %{hosts: ^tuples}} = prepare(%{hosts: hosts}), inspect(hosts)
+      end
+    end
+
+    test "the options a prepared plugin holds prepare again to the same hosts" do
+      {:ok, prepared} = prepare(%{hosts: "kafka1:9092,kafka2:9093"})
+
+      assert {:ok, normalised} = ProviderOptions.normalise_opts(Producer, prepared)
+
+      assert {:ok, %{hosts: [{"kafka1", 9092}, {"kafka2", 9093}]}} =
+               Producer.init_provider(normalised)
+    end
+
+    test "a host without a port is refused naming hosts" do
+      assert {:error, {:invalid_option_value, :hosts, "kafka1"}} = prepare(%{hosts: "kafka1"})
+    end
+  end
+
+  test "no public row of either provider is typed :any" do
+    untyped =
+      for provider <- [Producer, FlezhaKafka.Consumer],
+          {name, row} <- Decl.public_options(provider.__provider__()),
+          Keyword.get(row, :type, :any) == :any,
+          do: "#{inspect(provider)}.#{name}"
+
+    assert untyped == []
   end
 
   describe "the dispatch and the worker it names" do

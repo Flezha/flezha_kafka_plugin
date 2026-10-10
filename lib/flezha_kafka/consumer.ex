@@ -94,6 +94,7 @@ defmodule FlezhaKafka.Consumer do
         ],
     worker: [module: Member, restart: :temporary]
 
+  defp convert_value(:hosts, value), do: Connection.convert_hosts(value)
   defp convert_value(:auth, value), do: Connection.convert_auth(value)
 
   @doc "Validate and prepare. Connects to nothing: the member does, at activation."

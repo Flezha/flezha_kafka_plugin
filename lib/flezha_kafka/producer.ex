@@ -369,5 +369,6 @@ defmodule FlezhaKafka.Producer do
     end
   end
 
+  defp convert_value(:hosts, value), do: Connection.convert_hosts(value)
   defp convert_value(:auth, value), do: Connection.convert_auth(value)
 end
