@@ -117,3 +117,7 @@ its logs when one fails, and exits non-zero on any failure.
 `MEMORY_DRIFT_DURATION_MIN` minutes, optionally with a websocket source
 (`MEMORY_DRIFT_WORKLOAD=combined`), and fails when the controller's memory grows faster than
 `MEMORY_DRIFT_MAX_MB_PER_HOUR`.
+
+## Licence
+
+Apache-2.0, see `LICENSE`.
