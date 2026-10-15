@@ -13,7 +13,7 @@ defmodule FlezhaKafka.ProducerWorker.Window do
 
   require Logger
 
-  alias Flezha.SDK.Knob
+  alias Flezha.Config.Backoff
   alias Flezha.Plugin.ProviderBehaviour
   alias Flezha.Process.Backlog
   alias Flezha.State.Outbox
@@ -23,7 +23,7 @@ defmodule FlezhaKafka.ProducerWorker.Window do
 
   # The produce retry ladder; `retry_backoff_ms` and `retry_max_backoff_ms`
   # bound it per plugin.
-  @produce_ladder %{base: 100, cap: 5_000, jitter: true, reset: :per_call}
+  @produce_ladder %{name: :kafka_produce, base: 100, cap: 5_000, jitter: true, reset: :per_call}
 
   # A full queue never discards a record unless the user chose a drop
   # strategy: the default is `:drop_nothing` for every record, guaranteed or not.
@@ -604,9 +604,10 @@ defmodule FlezhaKafka.ProducerWorker.Window do
   # `attempt` reaches here as 0 for a batch that has never been retried, which
   # is the ladder's first rung.
   def retry_backoff_ms(state, attempt) do
-    row = %{@produce_ladder | base: state.retry_backoff_ms, cap: state.retry_max_backoff_ms}
-    delay = Knob.delay(row, max(attempt, 1))
-    Knob.announce(:kafka_produce, max(attempt, 1), {state.topic, state.partition}, delay)
+    Backoff.arm(@produce_ladder, max(attempt, 1), {state.topic, state.partition},
+      base: state.retry_backoff_ms,
+      cap: state.retry_max_backoff_ms
+    )
   end
 
   defp fail_batch(state, batch, reason) do
