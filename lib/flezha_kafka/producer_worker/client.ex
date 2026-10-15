@@ -9,7 +9,6 @@ defmodule FlezhaKafka.ProducerWorker.Client do
 
   require Logger
 
-  alias Flezha.Process.Backlog
   alias FlezhaKafka.ProducerWorker.Lanes
   alias FlezhaKafka.ProducerWorker.Window
   alias FlezhaKafka.WorkerRegistry
@@ -235,9 +234,9 @@ defmodule FlezhaKafka.ProducerWorker.Client do
   defp swap_last_reason(_), do: :unknown
 
   # On swap exhaustion we stay alive: every record the worker holds, in flight,
-  # queued or blocked, is replied `{:error, {:delivery_failed,
-  # :worker_swap_exhausted}}`, fires a `[:produce, :failed]` event and, when
-  # guaranteed, is parked. The producer's `stats/1` `last_error` carries the
+  # queued or waiting for room, is replied `{:error, {:delivery_failed,
+  # :worker_swap_exhausted}}` (a waiting dispatch is let go), fires a
+  # `[:produce, :failed]` event and, when guaranteed, is parked. The producer's `stats/1` `last_error` carries the
   # terminal reason so callers can surface it. Subsequent enqueues fail through
   # the standard send-path `delivery_timeout_ms` retry against the dead
   # `worker_pid`, so no tight restart loop and no `:swap_exhausted` crash report.
@@ -256,14 +255,9 @@ defmodule FlezhaKafka.ProducerWorker.Client do
   end
 
   defp fail_held(state, swap_reason) do
-    state = Window.cancel_timers(state)
     reason = {:worker_swap_exhausted, swap_reason}
     attempts = state.swap_attempt + 1
-
-    held =
-      for(batch <- state.in_flight, record <- batch.records, do: record) ++
-        Backlog.to_list(state.queue) ++
-        for({from, record} <- :queue.to_list(state.blocked), do: %{record | from: from})
+    {held, state} = Lanes.empty(state)
 
     Enum.each(held, fn record ->
       reply_to_record(record, {:error, {:delivery_failed, :worker_swap_exhausted}})
@@ -276,7 +270,7 @@ defmodule FlezhaKafka.ProducerWorker.Client do
     end)
 
     Window.park(held, reason, attempts)
-    %{state | queue: Backlog.clear(state.queue), in_flight: [], blocked: :queue.new()}
+    state
   end
 
   @doc "The one `worker_swapped` event of a swap, once the sessions are back."

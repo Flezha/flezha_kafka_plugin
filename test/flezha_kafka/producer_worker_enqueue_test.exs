@@ -121,12 +121,12 @@ defmodule FlezhaKafka.ProducerWorkerEnqueueTest do
       assert ProducerWorker.stats(pid).dropped_total == 1
     end
 
-    test ":drop_nothing on the cast path waits for room instead of dropping" do
-      cast_path_waits_for_room(:drop_nothing)
+    test ":drop_nothing admits a cast on its way past the bound instead of dropping" do
+      cast_path_keeps_every_record(:drop_nothing)
     end
 
-    test "under the declared default a plain record waits instead of being dropped" do
-      cast_path_waits_for_room(:drop_nothing)
+    test "under the declared default a plain record is kept instead of being dropped" do
+      cast_path_keeps_every_record(:drop_nothing)
     end
 
     test "permanent broker error fires :failed with caller: :async; no GenServer.reply" do
@@ -200,10 +200,10 @@ defmodule FlezhaKafka.ProducerWorkerEnqueueTest do
     end
   end
 
-  # Four plain records through a `queue_max: 1` worker whose first batch is
-  # slow: the cast never blocks its caller, and nothing is evicted — the
-  # records queue behind the in-flight batch and are produced once it drains.
-  defp cast_path_waits_for_room(queue_overflow) do
+  # Four plain records cast straight to a `queue_max: 1` worker whose first batch
+  # is slow: a cast never blocks its caller and nothing is evicted. The records
+  # past the bound were on their way, so they are admitted and produced.
+  defp cast_path_keeps_every_record(queue_overflow) do
     {pid, script_pid} =
       start_worker(queue_max: 1, queue_overflow: queue_overflow, linger_ms: 1)
 
@@ -220,17 +220,19 @@ defmodule FlezhaKafka.ProducerWorkerEnqueueTest do
     _ = ProducerWorker.stats(pid)
     refute_received {:telemetry, [:flezha, :plugin, :kafka, :overflowed], _, _}
 
-    sent =
-      for _ <- 1..4, into: MapSet.new() do
-        assert_receive {:send_called, request, _ns}, 2_000
-        [%{data: [%{record_set: rb}]}] = request.topic_data
-        Enum.map(rb.records, & &1.value)
-      end
-      |> Enum.concat()
-      |> MapSet.new()
-
-    assert MapSet.equal?(sent, MapSet.new(["first", "filler", "waits-1", "waits-2"]))
+    assert sent_values(MapSet.new(), 4) == MapSet.new(["first", "filler", "waits-1", "waits-2"])
     assert ProducerWorker.stats(pid).dropped_total == 0
+  end
+
+  # The values of every batch sent, until `n` were seen.
+  defp sent_values(seen, n) do
+    if MapSet.size(seen) >= n do
+      seen
+    else
+      assert_receive {:send_called, request, _ns}, 2_000
+      [%{data: [%{record_set: rb}]}] = request.topic_data
+      sent_values(MapSet.union(seen, MapSet.new(rb.records, & &1.value)), n)
+    end
   end
 
   describe "sustained produce stall forces a fresh broker connection" do

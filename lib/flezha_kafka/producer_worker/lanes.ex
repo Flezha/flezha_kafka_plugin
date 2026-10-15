@@ -13,6 +13,7 @@ defmodule FlezhaKafka.ProducerWorker.Lanes do
   """
 
   alias Flezha.Process.Backlog
+  alias FlezhaKafka.ProducerWorker.Window
 
   @fields [
     :partition,
@@ -126,21 +127,62 @@ defmodule FlezhaKafka.ProducerWorker.Lanes do
   @spec partitions(map()) :: [non_neg_integer() | nil]
   def partitions(state), do: state |> all() |> Map.keys() |> Enum.sort_by(&(&1 || -1))
 
+  @doc """
+  Mark the held lane full, or not. The worker's full flag, which a dispatch
+  reads before it casts, is up while any lane is marked.
+  """
+  @spec mark_full(map(), boolean()) :: map()
+  def mark_full(state, full?) do
+    full =
+      if full?,
+        do: MapSet.put(state.full, state.partition),
+        else: MapSet.delete(state.full, state.partition)
+
+    if MapSet.size(full) == 0 != (MapSet.size(state.full) == 0),
+      do: :atomics.put(state.flag, 1, min(MapSet.size(full), 1))
+
+    %{state | full: full}
+  end
+
+  @doc """
+  Take out every record the held lane holds, its window's first, then its
+  queue, then those waiting for room, whose dispatches are let go. The lane is
+  left empty, its timers cancelled.
+  """
+  @spec empty(map()) :: {[map()], map()}
+  def empty(state) do
+    state = Window.cancel_timers(state)
+
+    waiting =
+      for {from, record} <- :queue.to_list(state.blocked) do
+        Window.release(from)
+        record
+      end
+
+    held = Enum.flat_map(state.in_flight, & &1.records) ++ Backlog.to_list(state.queue) ++ waiting
+    state = %{state | queue: Backlog.clear(state.queue), in_flight: [], blocked: :queue.new()}
+    {held, mark_full(state, false)}
+  end
+
   @doc "The lane that has given up on the most batches in a row, the worker's health."
   @spec worst(map()) :: map()
   def worst(state), do: state |> all() |> Map.values() |> Enum.max_by(& &1.consecutive_failures)
 
-  @doc "Records queued and records in flight, summed over every lane."
+  @doc "Records queued, in flight and waiting for room, summed over every lane."
   @spec totals(map()) :: %{
           queue_depth: non_neg_integer(),
           in_flight: non_neg_integer(),
+          waiting: non_neg_integer(),
           queue_bytes: non_neg_integer()
         }
   def totals(state) do
-    Enum.reduce(all(state), %{queue_depth: 0, in_flight: 0, queue_bytes: 0}, fn {_p, lane}, acc ->
+    zero = %{queue_depth: 0, in_flight: 0, waiting: 0, queue_bytes: 0}
+
+    Enum.reduce(all(state), zero, fn {_p, lane}, acc ->
       %{
         queue_depth: acc.queue_depth + lane.queue.frames,
         in_flight: acc.in_flight + window_records(lane),
+        waiting: acc.waiting + :queue.len(lane.blocked),
         queue_bytes: acc.queue_bytes + lane.queue.bytes
       }
     end)

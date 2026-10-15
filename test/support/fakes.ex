@@ -49,7 +49,8 @@ defmodule FlezhaKafka.Test.Fakes do
   @doc """
   A `ProducerWorker` linked to the caller, plus the Agent holding its send
   script. Every knob the worker takes has a default here; `opts` overrides one
-  by name, and `:extra` appends raw init options.
+  by name, and `:extra` appends raw init options. `:name` registers it, as the
+  extension table does, so a dispatch can find it.
   """
   def start_worker(opts) do
     test_pid = self()
@@ -76,7 +77,7 @@ defmodule FlezhaKafka.Test.Fakes do
       metadata_refresh_fn: Keyword.get(opts, :metadata_refresh_fn, metadata_refresh_ok()),
       create_topic_fn: Keyword.get(opts, :create_topic_fn, create_topic_ok()),
       now_fn: Keyword.get(opts, :now_fn, fn -> System.monotonic_time(:millisecond) end),
-      name: nil
+      name: Keyword.get(opts, :name)
     ]
 
     spec = worker_spec("test-#{System.unique_integer([:positive])}")
@@ -84,7 +85,8 @@ defmodule FlezhaKafka.Test.Fakes do
     {:ok, pid} =
       GenServer.start_link(
         ProducerWorker,
-        Map.merge(spec, Map.new(base ++ Keyword.get(opts, :extra, [])))
+        Map.merge(spec, Map.new(base ++ Keyword.get(opts, :extra, []))),
+        if(base[:name], do: [name: base[:name]], else: [])
       )
 
     {pid, script_pid}

@@ -22,7 +22,6 @@ defmodule FlezhaKafka.ProducerWorker do
 
   require Logger
 
-  alias Flezha.Process.Backlog
   alias Flezha.Process.Cspec
   alias Flezha.SDK.SafeCall
   alias FlezhaKafka.ProducerWorker.Client
@@ -75,13 +74,17 @@ defmodule FlezhaKafka.ProducerWorker do
   end
 
   @doc """
-  Asynchronous, non-blocking enqueue used by the chain dispatch path.
-  Returns `:ok` immediately after handing the message off to the worker's
-  mailbox. Admission against the bounded queue happens inside the worker;
-  overflow is resolved per the configured `:queue_overflow` strategy. Under
-  `:drop_nothing` a cast-admitted record waits for room instead of being
-  dropped — the caller is never blocked, the record simply is not admitted yet,
-  which is what back-pressures the outbox flush that produced it.
+  The chain dispatch's enqueue: casts the record to the worker `server` names
+  and returns `:ok`. Admission against the bounded queue happens inside the
+  worker, per the configured `:queue_overflow` strategy.
+
+  Under `:drop_nothing` the worker raises a full flag, an `:atomics` cell
+  published as its registry value, while one of its lanes is full. A dispatch
+  reads it with the registry lookup a cast to the name makes anyway and, when it
+  is up, waits in a call until there is room, at most `:queue_block_timeout_ms`;
+  the record then overflows, counted in `dropped_total`, and a guaranteed one is
+  parked. A record already on its way when the flag rises is admitted past the
+  bound. With no worker registered the record is not sent.
 
   Permanent delivery failures of cast-admitted records surface through
   `[:flezha, :plugin, :kafka, :failed]` telemetry tagged with
@@ -89,8 +92,27 @@ defmodule FlezhaKafka.ProducerWorker do
   outbox park path; there is no caller to reply to.
   """
   @spec cast_enqueue(GenServer.server(), binary(), map()) :: :ok
-  def cast_enqueue(server, msg, metadata) do
-    GenServer.cast(server, {:enqueue_async, msg, metadata})
+  def cast_enqueue({:via, Registry, {registry, key}}, msg, metadata) do
+    case Registry.lookup(registry, key) do
+      # The flag is published once the worker's `init/1` runs; until then it is nil.
+      [{pid, flag}] ->
+        if flag != nil and :atomics.get(flag, 1) == 1,
+          do: wait_for_room(pid, msg, metadata),
+          else: GenServer.cast(pid, {:enqueue_async, msg, metadata})
+
+      [] ->
+        :ok
+    end
+  end
+
+  def cast_enqueue(pid, msg, metadata) when is_pid(pid),
+    do: GenServer.cast(pid, {:enqueue_async, msg, metadata})
+
+  defp wait_for_room(pid, msg, metadata) do
+    GenServer.call(pid, {:enqueue_wait, msg, metadata}, :infinity)
+  catch
+    # The worker stopped with the record waiting.
+    :exit, _gone -> :ok
   end
 
   @doc """
@@ -137,8 +159,15 @@ defmodule FlezhaKafka.ProducerWorker do
     Process.flag(:trap_exit, true)
     # Kayrock encodes with OTP's `:zstd` only once that module is loaded.
     if opts[:compression] == :zstd, do: Code.ensure_loaded(:zstd)
-    {:ok, initial_state(opts), {:continue, :connect}}
+    state = initial_state(opts)
+    publish(opts[:name], state.flag)
+    {:ok, state, {:continue, :connect}}
   end
+
+  defp publish({:via, Registry, {registry, key}}, flag),
+    do: Registry.update_value(registry, key, fn _ -> flag end)
+
+  defp publish(_unnamed, _flag), do: :ok
 
   # Every tunable is read here and nowhere else, so the defaults are one table.
   # The client is acquired once `init/1` has returned: the registry it comes from
@@ -230,6 +259,9 @@ defmodule FlezhaKafka.ProducerWorker do
       client_error: nil,
       count_failures: 0,
       dropped_total: 0,
+      # Up while any lane in `full` has no room (`Lanes.mark_full/2`).
+      flag: :atomics.new(1, []),
+      full: MapSet.new(),
       last_force_replace_at: nil,
       swap_started_at: nil,
       swap_attempt: 0,
@@ -290,6 +322,13 @@ defmodule FlezhaKafka.ProducerWorker do
     {:noreply, admit(state, record, from)}
   end
 
+  # A dispatch that read the full flag up: answered once its record is in, or
+  # has overflowed (`Window.release/1`).
+  def handle_call({:enqueue_wait, msg, metadata}, from, state) do
+    record = Wire.build_record(msg, metadata, :async, state.wall_now_fn.(), state.static_headers)
+    {:noreply, admit(state, record, {:wait, from})}
+  end
+
   def handle_call(:stats, _from, state) do
     totals = Lanes.totals(state)
     worst = Lanes.worst(state)
@@ -304,6 +343,7 @@ defmodule FlezhaKafka.ProducerWorker do
      %{
        queue_depth: totals.queue_depth,
        in_flight: totals.in_flight,
+       waiting: totals.waiting,
        dropped_total: state.dropped_total,
        last_error: state.client_error || worst.last_error,
        consecutive_failures: max(worst.consecutive_failures, state.count_failures),
@@ -510,28 +550,13 @@ defmodule FlezhaKafka.ProducerWorker do
 
   # Every record a lane holds, its window's first, joins the lane routing gives
   # it now, in order: the waiting lane's once the count is known, and a lane
-  # whose partition the topic turned out not to have. Such a lane goes.
+  # whose partition the topic turned out not to have. Such a lane goes. A
+  # dispatch waiting for room there is let go: its record is one on its way.
   defp reroute(state, partition) do
     {_, state} = Lanes.hold(state, partition)
-    state = Window.cancel_timers(state)
-
-    held =
-      Enum.flat_map(state.in_flight, & &1.records) ++
-        Backlog.to_list(state.queue) ++ :queue.to_list(state.blocked)
-
-    state = %{
-      state
-      | queue: Backlog.clear(state.queue),
-        blocked: :queue.new(),
-        in_flight: []
-    }
-
+    {held, state} = Lanes.empty(state)
     state = Lanes.drop(state, partition)
-
-    Enum.reduce(held, state, fn
-      {from, record}, acc -> admit(acc, record, from)
-      record, acc -> admit(acc, record, record.from)
-    end)
+    Enum.reduce(held, state, &admit(&2, &1, &1.from))
   end
 
   # A record joins its partition's lane. A synchronous caller is answered here

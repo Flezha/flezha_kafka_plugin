@@ -104,7 +104,8 @@ defmodule FlezhaKafka.Producer do
             type: :int,
             default: 5_000,
             min: 1,
-            doc: "How long an enqueue parks on a full queue before it is refused"
+            doc:
+              "How long a dispatch waits on a full queue before the record overflows, or an enqueue before it is refused"
           ],
           idempotent: [
             type: :bool,
@@ -308,9 +309,10 @@ defmodule FlezhaKafka.Producer do
   Synchronous read of producer counters for `plugin_id`: the plugin's one worker
   per topic, the first found when it produces to several.
 
-  Returns `{:ok, %{queue_depth, in_flight, dropped_total, last_error,
-  consecutive_failures, partitions, topic}}`, where `partitions` holds each
-  partition lane's `queue_depth` and `in_flight`, or `{:error, :no_producer}`.
+  Returns `{:ok, %{queue_depth, in_flight, waiting, dropped_total, last_error,
+  consecutive_failures, partitions, topic}}`, where `waiting` counts the records
+  waiting for room and `partitions` holds each partition lane's `queue_depth`
+  and `in_flight`, or `{:error, :no_producer}`.
   """
   @spec stats(binary()) :: {:ok, map()} | {:error, :no_producer}
   def stats(plugin_id) when is_binary(plugin_id) do

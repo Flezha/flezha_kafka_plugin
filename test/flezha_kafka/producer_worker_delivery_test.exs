@@ -1,5 +1,7 @@
 defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
   alias Flezha.Dlq.Store, as: DlqStore
+  alias Flezha.Plugin.Provider.WorkerSup
+  alias FlezhaKafka.Producer
   alias FlezhaKafka.ProducerWorker
   alias FlezhaKafka.Test.Fakes
   alias FlezhaKafka.Test.Helpers, as: TestHelpers
@@ -12,7 +14,7 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
   import ExUnit.CaptureLog
 
   import FlezhaKafka.Test.Fakes,
-    only: [start_worker: 1, attach: 1, window_records: 1]
+    only: [start_worker: 1, attach: 1, in_flight?: 2, queued?: 2, window_records: 1]
 
   setup :set_mimic_global_until_exit
 
@@ -139,7 +141,7 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
     end
 
     @tag :tmp_dir
-    test "swap exhaustion parks every guaranteed record, queued or blocked", %{
+    test "swap exhaustion parks every guaranteed record, queued or waiting for room", %{
       rc: rc,
       cell_id: cell_id,
       tmp_dir: dir
@@ -149,8 +151,11 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
       on_exit(fn -> Application.put_env(:flezha, :dlq, original) end)
       start_supervised!(DlqStore)
 
+      producer = WorkerSup.worker(Producer, {"default", rc, @topic})
+
       {pid, script_pid} =
         start_worker(
+          name: producer,
           linger_ms: 1,
           delivery_timeout_ms: 50,
           queue_max: 1,
@@ -159,18 +164,23 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
 
       Agent.update(script_pid, fn _ -> List.duplicate({:return, :never}, 5) end)
 
-      # 1 is dispatched and never answered; 2 and 3 wait in `blocked`, as room is
-      # made only when a batch completes. The client's death rewinds 1 into the queue.
-      for seq <- 1..3 do
-        :ok =
-          ProducerWorker.cast_enqueue(
-            pid,
-            "v#{seq}",
-            TestHelpers.guaranteed_metadata(cell_id, seq)
-          )
-      end
+      dispatch =
+        &ProducerWorker.cast_enqueue(
+          producer,
+          "v#{&1}",
+          TestHelpers.guaranteed_metadata(cell_id, &1)
+        )
 
-      assert wait_until(fn -> :queue.len(:sys.get_state(pid).blocked) == 2 end, 1_000, 5)
+      # 1 is dispatched and never answered, 2 fills the queue and 3, on its way,
+      # is admitted past the bound and raises the full flag, so 4 waits for room.
+      # The client's death rewinds 1 into the queue.
+      :ok = dispatch.(1)
+      assert in_flight?(pid, 1)
+      :ok = dispatch.(2)
+      :ok = dispatch.(3)
+      assert queued?(pid, 2)
+      waiting = Task.async(fn -> dispatch.(4) end)
+      assert wait_until(fn -> ProducerWorker.stats(pid).waiting == 1 end, 1_000, 5)
 
       registry_ref = {{[{"k", 9092}], 0, 0}, make_ref()}
       Fakes.seed_registry_ref(pid, registry_ref)
@@ -186,15 +196,14 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
         capture_log(fn ->
           send(pid, {:kafka_worker_dead, registry_ref, :killed})
 
-          assert :ok =
-                   TestHelpers.assert_confirmed([{:cursor, 1}, {:cursor, 2}, {:cursor, 3}], 1_000)
+          assert :ok = TestHelpers.assert_confirmed(Enum.map(1..4, &{:cursor, &1}), 1_000)
         end)
 
-      assert length(String.split(log, "parked undeliverable output")) == 4
+      assert :ok = Task.await(waiting, 1_000)
+      assert length(String.split(log, "parked undeliverable output")) == 5
       assert log =~ "worker_swap_exhausted"
-      assert length(DlqStore.list(rc)) == 3
-      assert ProducerWorker.stats(pid).last_error == {:swap_exhausted, :no_broker}
-      assert :queue.len(:sys.get_state(pid).blocked) == 0
+      assert length(DlqStore.list(rc)) == 4
+      assert %{last_error: {:swap_exhausted, :no_broker}, waiting: 0} = ProducerWorker.stats(pid)
     end
   end
 
