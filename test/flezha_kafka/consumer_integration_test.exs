@@ -15,6 +15,7 @@ defmodule FlezhaKafka.ConsumerIntegrationTest do
   alias FlezhaKafka.Consumer.Partition
   alias FlezhaKafka.Test.Helpers
   alias KafkaEx.API
+  alias KafkaEx.Client.NodeSelector
   alias KafkaEx.Consumer.ConsumerGroup
 
   @moduletag :kafka_integration
@@ -24,6 +25,8 @@ defmodule FlezhaKafka.ConsumerIntegrationTest do
      String.to_integer(System.get_env("KAFKA_BROKER_PORT", "19092"))}
   ]
   @api_versions %{fetch: 4, offset_fetch: 1, offset_commit: 1}
+  # The record-batch attribute bit of a transaction's records.
+  @transactional 0x10
   @compose_file Path.join(Mix.Project.deps_paths()[:flezha], "docker/dev/docker-compose.yml")
 
   # A GenConsumer that hands every message set to the test.
@@ -234,6 +237,17 @@ defmodule FlezhaKafka.ConsumerIntegrationTest do
       |> then(&assert(&1 =~ "records=1000 ingest refused: {:error, {:unreachable, :timeout}}"))
     end
 
+    test "read_committed hands over a committed transaction and leaves out an aborted one",
+         %{client: client} do
+      topic = new_topic(client, 1)
+      transaction!(client, topic, ["aborted-1", "aborted-2"], false)
+      transaction!(client, topic, ["committed"], true)
+
+      start_consumer(topic, %{isolation_level: "read_committed"})
+      # Written first, an aborted record or marker handed over would come first.
+      assert [{"committed", _}] = take(1)
+    end
+
     test "a 10 s broker pause reads as idle, then healthy, and loses nothing", %{client: client} do
       topic = new_topic(client, 1)
       {:ok, _} = API.produce(client, topic, 0, for(i <- 1..50, do: %{value: "#{i}"}))
@@ -350,6 +364,61 @@ defmodule FlezhaKafka.ConsumerIntegrationTest do
             30_000 -> flunk("fewer than #{n} records")
           end
       )
+
+  # One transaction of a producer of its own writing `values` to partition 0,
+  # then committed or aborted. The client library has no transactional
+  # producer, so its requests are sent as they are.
+  defp transaction!(client, topic, values, commit?) do
+    id = "txn-#{uid()}"
+
+    init = %Kayrock.InitProducerId.V0.Request{
+      transactional_id: id,
+      transaction_timeout_ms: 60_000
+    }
+
+    # Asking for the coordinator makes the broker create its transaction log.
+    assert wait(fn -> match?({:ok, _}, API.find_coordinator(client, id, coordinator_type: 1)) end)
+    assert wait(fn -> match?({:ok, %{error_code: 0}}, send_txn(client, init)) end)
+    {:ok, %{producer_id: producer, producer_epoch: epoch}} = send_txn(client, init)
+
+    txn = %{transactional_id: id, producer_id: producer, producer_epoch: epoch}
+
+    added =
+      struct(
+        Kayrock.AddPartitionsToTxn.V0.Request,
+        Map.put(txn, :topics, [%{topic: topic, partitions: [0]}])
+      )
+
+    assert {:ok, %{errors: [%{partition_errors: [%{error_code: 0}]}]}} = send_txn(client, added)
+
+    batch = %Kayrock.RecordBatch{
+      attributes: @transactional,
+      producer_id: producer,
+      producer_epoch: epoch,
+      base_sequence: 0,
+      records:
+        for(
+          v <- values,
+          do: %Kayrock.RecordBatch.Record{value: v, timestamp: System.os_time(:millisecond)}
+        )
+    }
+
+    produce = %Kayrock.Produce.V3.Request{
+      transactional_id: id,
+      acks: -1,
+      timeout: 5_000,
+      topic_data: [%{topic: topic, data: [%{partition: 0, record_set: batch}]}]
+    }
+
+    assert {:ok, %{responses: [%{partition_responses: [%{error_code: 0}]}]}} =
+             send_txn(client, produce)
+
+    ended = struct(Kayrock.EndTxn.V0.Request, Map.put(txn, :transaction_result, commit?))
+    assert {:ok, %{error_code: 0}} = send_txn(client, ended)
+  end
+
+  defp send_txn(client, request),
+    do: KafkaEx.Client.send_request(client, request, NodeSelector.first_available(), 10_000)
 
   defp committed_offset(client, group, topic) do
     {:ok, [%{partition_offsets: [%{offset: offset}]}]} =

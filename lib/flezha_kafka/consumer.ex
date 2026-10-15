@@ -65,6 +65,13 @@ defmodule FlezhaKafka.Consumer do
             max: 4_000,
             doc: "How long a fetch waits for records; below the client's 5 s request timeout"
           ],
+          isolation_level: [
+            type: :enum,
+            values: [:read_uncommitted, :read_committed],
+            default: :read_uncommitted,
+            doc:
+              "Which records a fetch hands over: every record, or only those of committed transactions and no transaction markers"
+          ],
           commit_interval_ms: [
             type: :int,
             default: 5_000,

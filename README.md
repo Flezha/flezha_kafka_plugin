@@ -77,12 +77,11 @@ MIX_ENV=prod RUSTLER_SKIP_COMPILATION=true mix flezha.plugin.package
 
 The archive is `_build/flezha_kafka-0.1.0.fpz`. It bundles `kafka_ex`, `kayrock`, `varint`
 and `connection`, with `kafka_ex` configured (`config/config.exs`) to start no worker of its
-own and to bound each request by a `sync_timeout` of 5 s. The library applies that one
-timeout to every request, whatever its caller names; a consumer group's join is held by the
-broker for the rebalance (3 s for a new group), which the 1 s default cannot cover, so the
-consumer's rebalance timeout stays below 5 s. While a broker is away the producer's worker
-can answer a stats call that much later; it loses nothing, and its pause test reads the
-budget from this config. It carries no
+own and to bound each request that names no timeout of its own by a `sync_timeout` of 5 s.
+A consumer's fetch is one: the broker holds it for up to `max_wait_ms` (at most 4 s) when no
+record waits, which the 1 s default cannot cover; a group's join and sync name their own.
+While a broker is away the producer's worker can answer a stats call that much later; it
+loses nothing, and its pause test reads the budget from this config. It carries no
 native code: the checksum library `crc32cer` the Kafka record format needs is shipped by the
 controller release.
 

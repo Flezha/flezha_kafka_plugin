@@ -52,6 +52,16 @@ defmodule FlezhaKafka.ConsumerTest do
       refute inspect(auth) =~ "hunter2"
     end
 
+    test "isolation_level reads uncommitted unless told, and takes only a level Kafka has" do
+      assert {:ok, %{isolation_level: :read_uncommitted}} = prepare(@base)
+
+      assert {:ok, opts} = prepare(Map.put(@base, :isolation_level, "read_committed"))
+      assert Member.args(opts).isolation_level == :read_committed
+
+      assert {:error, {:invalid_option_value, :isolation_level, "serializable"}} =
+               prepare(Map.put(@base, :isolation_level, "serializable"))
+    end
+
     test "a member of a partition group is refused" do
       assert {:error, {:partitioned_host, %{provider: "kafka_consumer", relay: "op"}}} =
                prepare(Map.merge(@base, %{partition_count: 2, partition_index: 0}))

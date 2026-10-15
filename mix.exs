@@ -40,7 +40,7 @@ defmodule FlezhaKafka.MixProject do
       # The owner's fork, which carries the producer's recovery fixes. Its
       # checksum library `crc32cer` is native code, which a package may not
       # carry: the controller release ships it.
-      {:kafka_ex, github: "alfetahe/kafka_ex", ref: "0764363353dc2ffc9996bdc8af11b9fe00561a57"}
+      {:kafka_ex, github: "alfetahe/kafka_ex", ref: "0eeb71af38097e85365c0672e6fda8e24fea766c"}
     ]
   end
 end

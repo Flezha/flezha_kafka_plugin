@@ -33,9 +33,8 @@ defmodule FlezhaKafka.Consumer.Member do
   # The group's timings. A member that misses heartbeats for the session is
   # dropped; a rebalance waits for every member to rejoin within its own
   # timeout, which must cover a heartbeat and a partition consumer's 2.5 s
-  # `shutdown`. The broker holds a join for at most that timeout, and the fork's
-  # client bounds every request by the `:kafka_ex` `sync_timeout` (5 s in the
-  # package's config), so the rebalance timeout stays below it.
+  # `shutdown`. The broker holds a join for at most that timeout; the fork waits
+  # for a join and its sync for the session timeout plus 10 s.
   @heartbeat_ms 1_000
   @session_ms 10_000
   @rebalance_ms 4_000
@@ -67,6 +66,7 @@ defmodule FlezhaKafka.Consumer.Member do
       :start_at,
       :max_bytes,
       :max_wait_ms,
+      :isolation_level,
       :commit_interval_ms,
       :lag_interval_ms
     ])
@@ -195,9 +195,17 @@ defmodule FlezhaKafka.Consumer.Member do
         heartbeat_interval: @heartbeat_ms,
         session_timeout: @session_ms,
         rebalance_timeout: @rebalance_ms,
-        fetch_options: [max_bytes: state.max_bytes, max_wait_time: state.max_wait_ms]
+        fetch_options: [
+          max_bytes: state.max_bytes,
+          max_wait_time: state.max_wait_ms,
+          isolation_level: isolation_level(state.isolation_level)
+        ]
       ] ++ Partition.consumer_opts(state)
   end
+
+  # The fetch request's isolation level, as Kafka numbers it.
+  defp isolation_level(:read_uncommitted), do: 0
+  defp isolation_level(:read_committed), do: 1
 
   defp rejoin_later(state, what, reason) do
     Logger.warning(
