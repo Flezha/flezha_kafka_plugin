@@ -46,15 +46,22 @@ defmodule FlezhaKafka.ProducerWorker.Wire do
   # session must be re-initialised and the batch resent — acking it would drop data.
   @idempotence_fenced [:out_of_order_sequence_number, :invalid_producer_epoch]
 
-  # The record-batch attribute bits of each codec, as Kayrock reads them.
-  @codecs %{none: 0, gzip: 1}
+  # Each codec's record-batch attribute bits, as Kayrock reads them, and the
+  # Produce request that carries it: the broker takes zstd only from v7.
+  @codecs %{
+    none: {0, %Kayrock.Produce.V5.Request{}},
+    gzip: {1, %Kayrock.Produce.V5.Request{}},
+    zstd: {4, %Kayrock.Produce.V7.Request{}}
+  }
 
   # The output identity a held record carries as headers, where its output has it.
   @identity_headers ["flz.key", "flz.cell", "flz.seq", "flz.epoch"]
 
   def build_produce_request(state, records, base_sequence) do
+    {attributes, request} = Map.fetch!(@codecs, state.compression)
+
     record_batch = %Kayrock.RecordBatch{
-      attributes: Map.fetch!(@codecs, state.compression),
+      attributes: attributes,
       producer_id: if(state.idempotent, do: state.producer_id, else: -1),
       producer_epoch: if(state.idempotent, do: state.producer_epoch, else: -1),
       base_sequence: if(state.idempotent, do: base_sequence, else: -1),
@@ -71,16 +78,17 @@ defmodule FlezhaKafka.ProducerWorker.Wire do
         end)
     }
 
-    %Kayrock.Produce.V5.Request{
-      transactional_id: nil,
-      acks: state.required_acks,
-      timeout: state.request_timeout_ms,
-      topic_data: [
-        %{
-          topic: state.topic,
-          data: [%{partition: state.partition, record_set: record_batch}]
-        }
-      ]
+    %{
+      request
+      | transactional_id: nil,
+        acks: state.required_acks,
+        timeout: state.request_timeout_ms,
+        topic_data: [
+          %{
+            topic: state.topic,
+            data: [%{partition: state.partition, record_set: record_batch}]
+          }
+        ]
     }
   end
 

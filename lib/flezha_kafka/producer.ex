@@ -55,10 +55,10 @@ defmodule FlezhaKafka.Producer do
           ],
           compression: [
             type: :enum,
-            values: [:none, :gzip],
+            values: [:none, :gzip, :zstd],
             default: :none,
             doc:
-              "Batch compression; `snappy`, `lz4` and `zstd` are refused, the client library encodes them only with native code"
+              "Batch compression; `zstd` needs Kafka 2.1 or later; `snappy` and `lz4` are refused, the client library encodes them only with native code"
           ],
           headers: [
             type: :json,

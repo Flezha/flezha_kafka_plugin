@@ -135,6 +135,8 @@ defmodule FlezhaKafka.ProducerWorker do
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
+    # Kayrock encodes with OTP's `:zstd` only once that module is loaded.
+    if opts[:compression] == :zstd, do: Code.ensure_loaded(:zstd)
     {:ok, initial_state(opts), {:continue, :connect}}
   end
 

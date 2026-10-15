@@ -76,8 +76,8 @@ defmodule FlezhaKafka.OptionsTest do
   end
 
   describe "compression" do
-    test "snappy, lz4 and zstd are refused at enable, naming the option" do
-      for codec <- ["snappy", "lz4", "zstd"] do
+    test "snappy and lz4 are refused at enable, naming the option" do
+      for codec <- ["snappy", "lz4"] do
         assert {:error, {:invalid_option_value, :compression, ^codec}} =
                  prepare(%{compression: codec})
       end
@@ -87,6 +87,18 @@ defmodule FlezhaKafka.OptionsTest do
       {request, batch} = request_for([extra: [compression: :gzip]], %{})
       assert %Kayrock.Produce.V5.Request{} = request
       assert (batch.attributes &&& 7) == 1
+    end
+
+    test "a zstd batch goes on Produce v7 and reads back through the zstd codec" do
+      assert {:ok, _prepared} = prepare(%{compression: "zstd"})
+
+      {request, batch} = request_for([extra: [compression: :zstd]], %{})
+      assert %Kayrock.Produce.V7.Request{} = request
+      assert (batch.attributes &&& 7) == 4
+
+      <<_size::32, wire::binary>> = IO.iodata_to_binary(Kayrock.RecordBatch.serialize(batch))
+      [read] = Kayrock.RecordBatch.deserialize(wire)
+      assert Enum.map(read.records, & &1.value) == ["v"]
     end
   end
 

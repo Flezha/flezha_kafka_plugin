@@ -123,21 +123,27 @@ defmodule FlezhaKafka.IntegrationTest do
     WorkerSup.stop_worker(WorkerSup.family(Producer), {:default, plugin_id, topic})
   end
 
-  test "a gzip batch is read back by a consumer, headers and all" do
-    topic = "flezha_integ_gzip_#{System.unique_integer([:positive])}"
+  for codec <- [:gzip, :zstd] do
+    test "a #{codec} batch is read back by a consumer, headers and all" do
+      topic = "flezha_integ_#{unquote(codec)}_#{System.unique_integer([:positive])}"
 
-    pid =
-      start_producer(topic, compression: :gzip, partition: 0, headers: ~s({"source": "flezha"}))
+      pid =
+        start_producer(topic,
+          compression: unquote(codec),
+          partition: 0,
+          headers: ~s({"source": "flezha"})
+        )
 
-    for i <- 1..100 do
-      :ok =
-        ProducerWorker.cast_enqueue(pid, "v#{i}", %{"flz.key" => "k#{i}", "flz.seq" => "#{i}.0"})
+      for i <- 1..100 do
+        :ok =
+          ProducerWorker.cast_enqueue(pid, "v#{i}", %{"flz.key" => "k#{i}", "flz.seq" => "#{i}.0"})
+      end
+
+      records = read_back(topic, 0, 100)
+      assert Enum.map(records, & &1.value) == Enum.map(1..100, &"v#{&1}")
+
+      assert Enum.map(hd(records).headers, &{&1.key, &1.value}) == [{"source", "flezha"}]
     end
-
-    records = read_back(topic, 0, 100)
-    assert Enum.map(records, & &1.value) == Enum.map(1..100, &"v#{&1}")
-
-    assert Enum.map(hd(records).headers, &{&1.key, &1.value}) == [{"source", "flezha"}]
   end
 
   test "keyed outputs land on the partitions the Java client chooses" do
