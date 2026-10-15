@@ -284,7 +284,7 @@ defmodule FlezhaKafka.ProducerWorker do
 
   @impl true
   def handle_call({:enqueue, msg, metadata}, from, state) do
-    record = Wire.build_record(msg, metadata, from, state.wall_now_fn.())
+    record = Wire.build_record(msg, metadata, from, state.wall_now_fn.(), state.static_headers)
     {:noreply, admit(state, record, from)}
   end
 
@@ -322,7 +322,7 @@ defmodule FlezhaKafka.ProducerWorker do
   end
 
   def handle_cast({:enqueue_async, msg, metadata}, state) do
-    record = Wire.build_record(msg, metadata, :async, state.wall_now_fn.())
+    record = Wire.build_record(msg, metadata, :async, state.wall_now_fn.(), state.static_headers)
     {:noreply, admit(state, record, :async)}
   end
 

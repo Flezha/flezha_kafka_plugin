@@ -1,6 +1,7 @@
 defmodule FlezhaKafka.ProducerWorkerTierRecordsTest do
   alias FlezhaKafka.Producer
   alias FlezhaKafka.ProducerWorker
+  alias FlezhaKafka.ProducerWorker.Wire
   alias FlezhaKafka.Test.Fakes, as: Fakes
   # async: false: writes Application env; Mimic global mode; Mimic stubs.
 
@@ -573,6 +574,87 @@ defmodule FlezhaKafka.ProducerWorkerTierRecordsTest do
     Task.async(fn -> ProducerWorker.enqueue(pid, String.duplicate("b", 20), %{}) end)
 
     assert_receive {:send_called, _, _}, 1_000
+  end
+
+  # The broker sizes a batch from its base offset on; Kayrock's serialisation
+  # leads with the 4-byte length the Produce request carries it under.
+  defp broker_bytes(batch), do: IO.iodata_length(Kayrock.RecordBatch.serialize(batch)) - 4
+
+  defp full_batch_bytes(records, metadata_fn, extra \\ []) do
+    {pid, _} =
+      start_worker(
+        linger_ms: 5_000,
+        queue_max: 20_000,
+        extra: extra,
+        script: [{:return, Fakes.ok_response(@topic, @partition)}]
+      )
+
+    for i <- 1..records,
+        do: :ok = ProducerWorker.cast_enqueue(pid, :binary.copy("x", 200), metadata_fn.(i))
+
+    assert_receive {:send_called, request, _}, 5_000
+    [%{data: [%{record_set: batch}]}] = request.topic_data
+    broker_bytes(batch)
+  end
+
+  test "a full batch at the default max_batch_bytes fits the broker's default message size" do
+    bytes = full_batch_bytes(6_000, &%{"flz.key" => "k#{rem(&1, 64)}"})
+
+    assert bytes <= 1_048_576
+    # Full, not cut short by an overcount: one more record would not have fit.
+    assert bytes > 1_048_576 - 220
+  end
+
+  test "the batch cut counts headers and a nil key exactly" do
+    metadata = fn
+      i when rem(i, 3) == 0 -> %{}
+      i when rem(i, 3) == 1 -> %{@tier_metadata | "flz.seq" => "#{i}.0"}
+      i -> %{"flz.key" => String.duplicate("k", rem(i, 300))}
+    end
+
+    bytes = full_batch_bytes(6_000, metadata, headers: %{"origin" => "bench", "region" => "eu"})
+
+    assert bytes <= 1_048_576
+    assert bytes > 1_048_576 - 700
+  end
+
+  test "a record is sized exactly as Kayrock encodes it, at every varint width" do
+    base = 1_700_000_000_000
+    # Each pair straddles the edge of a one- to four-byte varint, then beyond.
+    deltas = for b <- [6, 13, 20, 27, 40], p = 2 ** b, d <- [-p - 1, -p, p - 1, p], do: d
+    static = Wire.static_headers(%{"origin" => "bench"})
+
+    values =
+      Stream.cycle([
+        :binary.copy("v", 63),
+        :binary.copy("v", 8_192),
+        :binary.copy("v", 1_048_576)
+      ])
+
+    metadata = Stream.cycle([%{}, @tier_metadata, %{"flz.key" => :binary.copy("k", 64)}])
+
+    records =
+      Enum.zip_with([[0 | deltas], values, metadata], fn [d, v, m] ->
+        Wire.build_record(v, m, :async, base + d, static)
+      end)
+
+    state = %{
+      compression: :none,
+      idempotent: false,
+      required_acks: -1,
+      request_timeout_ms: 1_000,
+      topic: @topic,
+      partition: @partition
+    }
+
+    [%{data: [%{record_set: batch}]}] = Wire.build_produce_request(state, records, 0).topic_data
+
+    counted =
+      records
+      |> Enum.with_index()
+      |> Enum.reduce(Wire.batch_overhead(), fn {r, i}, n -> n + Wire.record_size(r, i, base) end)
+
+    assert counted == broker_bytes(batch)
   end
 
   test "drop-nothing mode applies back-pressure with timeout" do

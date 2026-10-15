@@ -82,7 +82,12 @@ defmodule FlezhaKafka.Producer do
             doc: "Total budget for one batch before it is parked"
           ],
           linger_ms: [type: :int, default: 10, min: 0, doc: "How long a batch waits to fill"],
-          max_batch_bytes: [type: :int, default: 1_048_576, min: 1, doc: "Largest batch produced"],
+          max_batch_bytes: [
+            type: :int,
+            default: 1_048_576,
+            min: 1,
+            doc: "Largest record batch produced, in encoded bytes"
+          ],
           queue_max: [
             type: :int,
             default: 10_000,

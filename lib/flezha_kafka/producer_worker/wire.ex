@@ -66,7 +66,7 @@ defmodule FlezhaKafka.ProducerWorker.Wire do
             offset: 0,
             key: r.key,
             value: r.value,
-            headers: record_headers(r, state.static_headers)
+            headers: r.headers
           }
         end)
     }
@@ -84,7 +84,7 @@ defmodule FlezhaKafka.ProducerWorker.Wire do
     }
   end
 
-  defp record_headers(%{metadata: metadata, dedup_key: dedup_key}, static) do
+  defp record_headers(metadata, dedup_key, static) do
     dedup =
       if is_binary(dedup_key),
         do: [%RecordHeader{key: "flezha.dedup_key", value: dedup_key}],
@@ -111,20 +111,65 @@ defmodule FlezhaKafka.ProducerWorker.Wire do
   def static_headers(headers),
     do: for({name, value} <- Enum.sort(headers), do: %RecordHeader{key: name, value: value})
 
-  def build_record(msg, metadata, from, timestamp_ms) do
+  @doc """
+  A queued record. Its `bytes` is its exact encoded size less the three
+  varints that depend on its place in a batch, which `record_size/3` adds.
+  """
+  def build_record(msg, metadata, from, timestamp_ms, static_headers) do
     key = message_key(metadata)
     dedup_key = Outbox.dedup_key(metadata)
+    headers = record_headers(metadata, dedup_key, static_headers)
 
     %{
       from: from,
       value: msg,
       key: key,
       dedup_key: dedup_key,
+      headers: headers,
       metadata: metadata,
       timestamp: timestamp_ms,
-      bytes: byte_size_or(0, msg) + byte_size_or(0, key) + byte_size_or(0, dedup_key)
+      bytes: 1 + field_size(key) + field_size(msg) + headers_size(headers)
     }
   end
+
+  @doc """
+  The bytes a record batch takes before its first record: base offset, length,
+  leader epoch, magic, CRC and the 40-byte header the broker counts against
+  `message.max.bytes`.
+  """
+  def batch_overhead, do: 61
+
+  @doc """
+  The bytes `record` takes on the wire as record `offset_delta` of a batch whose
+  first record is stamped `base_ts`, exactly as `Kayrock.RecordBatch` encodes it.
+  """
+  def record_size(record, offset_delta, base_ts) do
+    body = record.bytes + varint_size(record.timestamp - base_ts) + varint_size(offset_delta)
+    varint_size(body) + body
+  end
+
+  defp headers_size(headers), do: headers_size(headers, varint_size(length(headers)))
+
+  defp headers_size([], n), do: n
+
+  defp headers_size([%RecordHeader{key: k, value: v} | rest], n),
+    do: headers_size(rest, n + field_size(k) + field_size(v))
+
+  # A nil field is written as length -1, one byte.
+  defp field_size(nil), do: 1
+  defp field_size(bin), do: varint_size(byte_size(bin)) + byte_size(bin)
+
+  # Kafka's varints are zigzag then LEB128, seven bits a byte: the ranges are
+  # the values whose zigzag form fits one, two, three and four bytes.
+  defp varint_size(v) when v in -64..63, do: 1
+  defp varint_size(v) when v in -8_192..8_191, do: 2
+  defp varint_size(v) when v in -1_048_576..1_048_575, do: 3
+  defp varint_size(v) when v in -134_217_728..134_217_727, do: 4
+  defp varint_size(v) when v < 0, do: leb128_size(-2 * v - 1)
+  defp varint_size(v), do: leb128_size(2 * v)
+
+  defp leb128_size(z) when z < 0x80, do: 1
+  defp leb128_size(z), do: 1 + leb128_size(Bitwise.bsr(z, 7))
 
   # Effectively-once tier record (`flz.epoch` present): the natural key is
   # the Kafka message key — stable partitioning across replays, upsert
@@ -145,9 +190,6 @@ defmodule FlezhaKafka.ProducerWorker.Wire do
       Map.get(metadata, "flezha.dedup_key") ||
       Map.get(metadata, "kafka_msg_key", nil)
   end
-
-  defp byte_size_or(_default, bin) when is_binary(bin), do: byte_size(bin)
-  defp byte_size_or(default, _), do: default
 
   @doc """
   Classify a broker answer into the outcome the in-flight window acts on. The

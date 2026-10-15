@@ -305,21 +305,25 @@ defmodule FlezhaKafka.ProducerWorker.Window do
     }
   end
 
-  defp drain_batch(state, max_bytes), do: drain(state, max_bytes, [], 0)
+  defp drain_batch(state, max_bytes),
+    do: drain(state, max_bytes, [], 0, Wire.batch_overhead(), nil)
 
-  # `acc_bytes` rides along: re-summing the accumulator per record made a
+  # The running size rides along: re-summing the accumulator per record made a
   # batch of n records cost n² additions.
-  defp drain(state, max_bytes, acc, acc_bytes) do
+  defp drain(state, max_bytes, acc, count, bytes, base_ts) do
     case Backlog.peek(state.queue) do
       :empty ->
         {Enum.reverse(acc), state}
 
       {:value, record} ->
-        if acc != [] and acc_bytes + record.bytes > max_bytes do
+        base_ts = base_ts || record.timestamp
+        bytes = bytes + Wire.record_size(record, count, base_ts)
+
+        if acc != [] and bytes > max_bytes do
           {Enum.reverse(acc), state}
         else
           {record, queue} = Backlog.out(state.queue)
-          drain(%{state | queue: queue}, max_bytes, [record | acc], acc_bytes + record.bytes)
+          drain(%{state | queue: queue}, max_bytes, [record | acc], count + 1, bytes, base_ts)
         end
     end
   end
