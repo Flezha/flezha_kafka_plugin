@@ -103,7 +103,11 @@ defmodule FlezhaKafka.ProducerWorker.Window do
   defp settle_outbox(batch, :ok), do: Outbox.confirm_many(Enum.map(batch.records, & &1.metadata))
 
   defp settle_outbox(batch, {:error, {_kind, reason}}),
-    do: Enum.each(batch.records, &Outbox.park(&1.metadata, &1.value, reason, batch.attempt + 1))
+    do: park(batch.records, reason, batch.attempt + 1)
+
+  @doc "Parks every guaranteed record of `records` as failed for good with `reason`."
+  def park(records, reason, attempts),
+    do: Enum.each(records, &Outbox.park(&1.metadata, &1.value, reason, attempts))
 
   def reply_to_record(nil, _reply), do: :ok
   def reply_to_record(%{from: :async}, _reply), do: :ok

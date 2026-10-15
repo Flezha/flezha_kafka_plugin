@@ -234,16 +234,16 @@ defmodule FlezhaKafka.ProducerWorker.Client do
   defp swap_last_reason(%{client_error: {:swap_failed, reason}}), do: reason
   defp swap_last_reason(_), do: :unknown
 
-  # On swap exhaustion we stay alive: every queued record is replied to
-  # with `{:error, {:delivery_failed, :worker_swap_exhausted}}` and a
-  # `[:produce, :failed]` event fires per record (per task 2.4). The
-  # producer's `stats/1` `last_error` carries the terminal reason so callers can
-  # surface it. Subsequent enqueues fail through the standard send-path
-  # `delivery_timeout_ms` retry against the dead `worker_pid`, so no
-  # tight restart loop and no `:swap_exhausted` crash report.
+  # On swap exhaustion we stay alive: every record the worker holds, in flight,
+  # queued or blocked, is replied `{:error, {:delivery_failed,
+  # :worker_swap_exhausted}}`, fires a `[:produce, :failed]` event and, when
+  # guaranteed, is parked. The producer's `stats/1` `last_error` carries the
+  # terminal reason so callers can surface it. Subsequent enqueues fail through
+  # the standard send-path `delivery_timeout_ms` retry against the dead
+  # `worker_pid`, so no tight restart loop and no `:swap_exhausted` crash report.
   defp fail_all_during_swap(state, swap_reason) do
     state =
-      Lanes.each(state, &fail_queued(&1, swap_reason))
+      Lanes.each(state, &fail_held(&1, swap_reason))
 
     {:noreply,
      %{
@@ -255,23 +255,28 @@ defmodule FlezhaKafka.ProducerWorker.Client do
      }}
   end
 
-  defp fail_queued(state, swap_reason) do
-    queued = Backlog.to_list(state.queue)
+  defp fail_held(state, swap_reason) do
+    state = Window.cancel_timers(state)
+    reason = {:worker_swap_exhausted, swap_reason}
+    attempts = state.swap_attempt + 1
 
-    Enum.each(queued, fn record ->
+    held =
+      for(batch <- state.in_flight, record <- batch.records, do: record) ++
+        Backlog.to_list(state.queue) ++
+        for({from, record} <- :queue.to_list(state.blocked), do: %{record | from: from})
+
+    Enum.each(held, fn record ->
       reply_to_record(record, {:error, {:delivery_failed, :worker_swap_exhausted}})
 
       emit_produce_failed(
-        state.swap_attempt + 1,
+        attempts,
         state.delivery_timeout_ms,
-        Map.merge(partition_meta(state), %{
-          last_reason: {:worker_swap_exhausted, swap_reason},
-          caller: caller_tag(record)
-        })
+        Map.merge(partition_meta(state), %{last_reason: reason, caller: caller_tag(record)})
       )
     end)
 
-    %{state | queue: Backlog.clear(state.queue), in_flight: []}
+    Window.park(held, reason, attempts)
+    %{state | queue: Backlog.clear(state.queue), in_flight: [], blocked: :queue.new()}
   end
 
   @doc "The one `worker_swapped` event of a swap, once the sessions are back."
