@@ -16,6 +16,7 @@ defmodule FlezhaKafka.Consumer do
   """
 
   alias Flezha.Plugin.Extension.Ctx
+  alias Flezha.Plugin.Provider.WorkerSup
   alias Flezha.Plugin.ProviderBehaviour
   alias FlezhaKafka.Connection
   alias FlezhaKafka.Consumer.Member
@@ -116,7 +117,7 @@ defmodule FlezhaKafka.Consumer do
 
   @doc "One group member per binding, started with `Consumer.Member.args/1`."
   @impl true
-  def worker_specs(opts), do: [{opts.plugin_id, Member.args(opts)}]
+  def worker_specs(opts), do: [{WorkerSup.key(opts), Member.args(opts)}]
 
   @doc """
   Teardown is the host's. This callback exists so the provider can be hooked at

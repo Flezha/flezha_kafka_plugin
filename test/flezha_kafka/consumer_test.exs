@@ -79,6 +79,17 @@ defmodule FlezhaKafka.ConsumerTest do
                Flezha.Error.from_reason(reason, nil)
     end
 
+    test "one name in two namespaces is two group members" do
+      keys =
+        for ns <- ["ns_a", "ns_b"] do
+          {:ok, opts} = prepare(Map.put(@base, :source_namespace, ns))
+          [{key, _args}] = Consumer.worker_specs(opts)
+          key
+        end
+
+      assert keys == [{"ns_a", "kin"}, {"ns_b", "kin"}]
+    end
+
     test "it feeds, is not shareable and declares its own verbs" do
       decl = Consumer.__provider__()
       assert {decl.name, decl.feeds, decl.shareable} == {"kafka_consumer", true, false}
