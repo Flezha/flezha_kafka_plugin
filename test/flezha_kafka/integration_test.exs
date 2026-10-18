@@ -23,6 +23,7 @@ defmodule FlezhaKafka.IntegrationTest do
   alias Flezha.Plugin.Provider.WorkerSup
   alias FlezhaKafka.Test.Helpers
   alias Flezha.SDK.SafeCall
+  alias FlezhaTest.Helper.NodeTestHelper
 
   # async: false: a shared Kafka broker in Docker.
 
@@ -95,7 +96,7 @@ defmodule FlezhaKafka.IntegrationTest do
     # answer comes that much late; an unanswered read is read again.
     stats_budget = Application.fetch_env!(:kafka_ex, :sync_timeout)
 
-    assert Helpers.wait_until(
+    assert NodeTestHelper.wait_until(
              fn ->
                stats = SafeCall.bounded(pid, :stats, stats_budget, on_error: %{}, log: :debug)
                Map.get(stats, :consecutive_failures, 0) >= 1 or Map.get(stats, :last_error) != nil
@@ -200,7 +201,7 @@ defmodule FlezhaKafka.IntegrationTest do
   defp read_back(topic, partition, count) do
     {:ok, client} = KafkaEx.start_link_worker(:no_name, uris: [{@broker_host, @broker_port}])
 
-    assert Helpers.wait_until(
+    assert NodeTestHelper.wait_until(
              fn ->
                match?(
                  {:ok, %{records: records}} when length(records) >= count,

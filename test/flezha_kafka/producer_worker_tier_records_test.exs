@@ -7,7 +7,7 @@ defmodule FlezhaKafka.ProducerWorkerTierRecordsTest do
 
   use ExUnit.Case, async: false
   use Mimic
-  import FlezhaKafka.Test.Helpers, only: [set_mimic_global_until_exit: 1]
+  import FlezhaTest.Helper.MimicGlobal
 
   import FlezhaKafka.Test.Fakes,
     only: [start_worker: 1, attach: 1, in_flight?: 2, queued?: 2]

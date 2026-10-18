@@ -16,7 +16,8 @@ defmodule FlezhaKafka.Test.Fakes do
 
   alias FlezhaKafka.ProducerWorker
   alias FlezhaKafka.WorkerRegistry
-  alias FlezhaKafka.Test.Helpers
+  alias FlezhaTest.Helper.NodeTestHelper
+  alias FlezhaTest.Helper.Telemetry
 
   @topic "p_topic"
   @partition 0
@@ -58,7 +59,7 @@ defmodule FlezhaKafka.Test.Fakes do
     {:ok, script_pid} = Agent.start_link(fn -> Keyword.get(opts, :script, []) end)
 
     base = [
-      worker_pid: spawn(&Helpers.park/0),
+      worker_pid: spawn(&NodeTestHelper.park/0),
       linger_ms: Keyword.get(opts, :linger_ms, 5),
       max_batch_bytes: Keyword.get(opts, :max_batch_bytes, 1_048_576),
       queue_max: Keyword.get(opts, :queue_max, 1_000),
@@ -119,7 +120,7 @@ defmodule FlezhaKafka.Test.Fakes do
   def expect_worker_swap(pid, swap \\ :swapped) do
     registry_ref = {{[{"k", 9092}], 0, 0}, make_ref()}
     seed_registry_ref(pid, registry_ref)
-    new_worker_pid = spawn(&Helpers.park/0)
+    new_worker_pid = spawn(&NodeTestHelper.park/0)
 
     case swap do
       :swapped ->
@@ -155,13 +156,13 @@ defmodule FlezhaKafka.Test.Fakes do
   # The worker's own accounting is the settle signal for a caller that
   # enqueues from another process.
   def in_flight?(pid, n),
-    do: Helpers.wait_until(fn -> ProducerWorker.stats(pid).in_flight == n end, 1_000, 5)
+    do: NodeTestHelper.wait_until(fn -> ProducerWorker.stats(pid).in_flight == n end, 1_000, 5)
 
   def queued?(pid, n),
-    do: Helpers.wait_until(fn -> ProducerWorker.stats(pid).queue_depth == n end, 1_000, 5)
+    do: NodeTestHelper.wait_until(fn -> ProducerWorker.stats(pid).queue_depth == n end, 1_000, 5)
 
   def dispatched?(pid),
-    do: Helpers.wait_until(fn -> ProducerWorker.stats(pid).in_flight >= 1 end, 1_000, 5)
+    do: NodeTestHelper.wait_until(fn -> ProducerWorker.stats(pid).in_flight >= 1 end, 1_000, 5)
 
   @doc """
   Forward one of the producer's telemetry events to the calling process as
@@ -179,7 +180,7 @@ defmodule FlezhaKafka.Test.Fakes do
         :worker_swapped -> [:flezha, :plugin, :kafka, :worker_swapped]
       end
 
-    Helpers.capture(event)
+    Telemetry.capture(event)
   end
 
   def script_send_fn(test_pid, script_pid) do

@@ -2,13 +2,14 @@ defmodule FlezhaKafka.ProducerWorkerEnqueueTest do
   alias Flezha.Process.Backlog
   alias FlezhaKafka.ProducerWorker
   alias FlezhaKafka.WorkerRegistry
-  alias FlezhaKafka.Test.Helpers
   alias FlezhaKafka.Test.Fakes, as: Fakes
+  alias FlezhaTest.Helper.NodeTestHelper
   # async: false: writes Application env; Mimic global mode; Mimic stubs.
 
   use ExUnit.Case, async: false
   use Mimic
-  import FlezhaKafka.Test.Helpers, only: [set_mimic_global_until_exit: 1, wait_until: 3]
+  import FlezhaTest.Helper.MimicGlobal
+  import FlezhaTest.Helper.NodeTestHelper, only: [wait_until: 3]
 
   import FlezhaKafka.Test.Fakes,
     only: [
@@ -239,7 +240,7 @@ defmodule FlezhaKafka.ProducerWorkerEnqueueTest do
     test "resumes producing after K give-ups without the shared worker dying" do
       registry_ref = {{[{"k", 9092}], 0, 0}, make_ref()}
       identity = %{hosts: [{"k", 9092}]}
-      fresh = spawn(&Helpers.park/0)
+      fresh = spawn(&NodeTestHelper.park/0)
 
       Mimic.stub(WorkerRegistry, :force_replace, fn ^identity -> {:ok, fresh} end)
 
@@ -288,7 +289,7 @@ defmodule FlezhaKafka.ProducerWorkerEnqueueTest do
       registry_ref = {{[{"k", 9092}], 0, 0}, make_ref()}
       identity = %{hosts: [{"k", 9092}]}
       test_pid = self()
-      fresh = spawn(&Helpers.park/0)
+      fresh = spawn(&NodeTestHelper.park/0)
 
       Mimic.stub(WorkerRegistry, :force_replace, fn ^identity ->
         send(test_pid, :refresh_called)
@@ -461,7 +462,7 @@ defmodule FlezhaKafka.ProducerWorkerEnqueueTest do
 
       # NOTE: send from a non-parent pid — gen_server.erl turns
       # `{:EXIT, parent_pid, :normal}` into a real terminate call.
-      other = spawn(&Helpers.park/0)
+      other = spawn(&NodeTestHelper.park/0)
       send(pid, {:EXIT, other, :killed})
       _ = :sys.get_state(pid)
 
@@ -502,7 +503,7 @@ defmodule FlezhaKafka.ProducerWorkerEnqueueTest do
 
       registry_ref = {{[{"k", 9092}], 0, 0}, make_ref()}
       Fakes.seed_registry_ref(pid, registry_ref)
-      new_worker_pid = spawn(&Helpers.park/0)
+      new_worker_pid = spawn(&NodeTestHelper.park/0)
 
       counter = :counters.new(1, [])
 

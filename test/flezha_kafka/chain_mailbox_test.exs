@@ -18,7 +18,7 @@ defmodule FlezhaKafka.ChainMailboxTest do
   alias FlezhaKafka.Producer
   alias FlezhaKafka.ProducerWorker
   alias FlezhaKafka.Test.Fakes
-  alias FlezhaKafka.Test.Helpers
+  alias FlezhaTest.Helper.NodeTestHelper
 
   @rate_per_s 80
   @inputs 160
@@ -46,7 +46,11 @@ defmodule FlezhaKafka.ChainMailboxTest do
     peak = drive(host)
 
     assert peak <= 1, "the host's mailbox reached #{peak}: the dispatch waited on the broker"
-    assert Helpers.wait_until(fn -> ProducerWorker.stats(worker()).queue_depth == 0 end, 5_000)
+
+    assert NodeTestHelper.wait_until(
+             fn -> ProducerWorker.stats(worker()).queue_depth == 0 end,
+             5_000
+           )
   end
 
   # The worker the table would start, behind a broker that answers each Produce
@@ -60,7 +64,7 @@ defmodule FlezhaKafka.ChainMailboxTest do
     end
 
     [{key, spec}] = Producer.worker_specs(opts)
-    spec = Map.merge(spec, %{worker_pid: spawn(&Helpers.park/0), send_fn: send_fn})
+    spec = Map.merge(spec, %{worker_pid: spawn(&NodeTestHelper.park/0), send_fn: send_fn})
 
     {:ok, _pid} =
       WorkerSup.ensure_worker(

@@ -4,13 +4,14 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
   alias FlezhaKafka.Producer
   alias FlezhaKafka.ProducerWorker
   alias FlezhaKafka.Test.Fakes
-  alias FlezhaKafka.Test.Helpers, as: TestHelpers
   alias FlezhaKafka.WorkerRegistry
+  alias FlezhaTest.Helper.ProviderPrepare
   # async: false: writes Application env; Mimic global mode; Mimic stubs.
 
   use ExUnit.Case, async: false
   use Mimic
-  import FlezhaKafka.Test.Helpers, only: [set_mimic_global_until_exit: 1, wait_until: 3]
+  import FlezhaTest.Helper.MimicGlobal
+  import FlezhaTest.Helper.NodeTestHelper, only: [wait_until: 3]
   import ExUnit.CaptureLog
 
   import FlezhaKafka.Test.Fakes,
@@ -25,7 +26,7 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
     setup do
       rc = "kw_" <> Integer.to_string(System.unique_integer([:positive]))
       cell_id = {rc, "task", "k1"}
-      :ok = TestHelpers.stub_outbox_owner(cell_id)
+      :ok = ProviderPrepare.stub_outbox_owner(cell_id)
       %{rc: rc, cell_id: cell_id}
     end
 
@@ -36,11 +37,11 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
         ProducerWorker.cast_enqueue(
           pid,
           "v",
-          TestHelpers.guaranteed_metadata(cell_id, 7)
+          ProviderPrepare.guaranteed_metadata(cell_id, 7)
         )
 
       assert_receive {:send_called, _request, _ns}, 1_000
-      assert :ok = TestHelpers.assert_confirmed([{:cursor, 7}], 1_000)
+      assert :ok = ProviderPrepare.assert_confirmed([{:cursor, 7}], 1_000)
     end
 
     @tag :tmp_dir
@@ -65,11 +66,11 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
             ProducerWorker.cast_enqueue(
               pid,
               "poison",
-              TestHelpers.guaranteed_metadata(cell_id, 3)
+              ProviderPrepare.guaranteed_metadata(cell_id, 3)
             )
 
           # Parked, then the hold is answered so the cursor may pass the parked range.
-          assert :ok = TestHelpers.assert_confirmed([{:cursor, 3}], 1_000)
+          assert :ok = ProviderPrepare.assert_confirmed([{:cursor, 3}], 1_000)
         end)
 
       assert log =~ "parked undeliverable output"
@@ -96,14 +97,14 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
           ProducerWorker.cast_enqueue(
             pid,
             "v#{seq}",
-            TestHelpers.guaranteed_metadata(cell_id, seq)
+            ProviderPrepare.guaranteed_metadata(cell_id, seq)
           )
       end
 
       # Every record is delivered — under `:drop_oldest` the middle one would
       # have been evicted while its cursor claimed it delivered.
       assert :ok =
-               TestHelpers.assert_confirmed(
+               ProviderPrepare.assert_confirmed(
                  Enum.map(0..2, &{:cursor, &1}),
                  2_000
                )
@@ -128,7 +129,7 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
               ProducerWorker.cast_enqueue(
                 pid,
                 "v#{seq}",
-                TestHelpers.guaranteed_metadata(cell_id, seq)
+                ProviderPrepare.guaranteed_metadata(cell_id, seq)
               )
           end
 
@@ -168,7 +169,7 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
         &ProducerWorker.cast_enqueue(
           producer,
           "v#{&1}",
-          TestHelpers.guaranteed_metadata(cell_id, &1)
+          ProviderPrepare.guaranteed_metadata(cell_id, &1)
         )
 
       # 1 is dispatched and never answered, 2 fills the queue and 3, on its way,
@@ -196,7 +197,7 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
         capture_log(fn ->
           send(pid, {:kafka_worker_dead, registry_ref, :killed})
 
-          assert :ok = TestHelpers.assert_confirmed(Enum.map(1..4, &{:cursor, &1}), 1_000)
+          assert :ok = ProviderPrepare.assert_confirmed(Enum.map(1..4, &{:cursor, &1}), 1_000)
         end)
 
       assert :ok = Task.await(waiting, 1_000)
@@ -368,7 +369,7 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
     test "a completed batch confirms each of its records exactly once" do
       rc = "kw_" <> Integer.to_string(System.unique_integer([:positive]))
       cell_id = {rc, "task", "k1"}
-      :ok = TestHelpers.stub_outbox_owner(cell_id)
+      :ok = ProviderPrepare.stub_outbox_owner(cell_id)
 
       pid = start_forward_worker([])
 
@@ -377,12 +378,12 @@ defmodule FlezhaKafka.ProducerWorkerDeliveryTest do
           ProducerWorker.cast_enqueue(
             pid,
             "v#{seq}",
-            TestHelpers.guaranteed_metadata(cell_id, seq)
+            ProviderPrepare.guaranteed_metadata(cell_id, seq)
           )
 
         assert_receive {:dispatched, ref, _request}, 1_000
         Fakes.answer(pid, ref, Fakes.ok_response(@topic, @partition))
-        assert :ok = TestHelpers.assert_confirmed([{:cursor, seq}], 1_000)
+        assert :ok = ProviderPrepare.assert_confirmed([{:cursor, seq}], 1_000)
       end
     end
 

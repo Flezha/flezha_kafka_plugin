@@ -14,6 +14,8 @@ defmodule FlezhaKafka.ConsumerIntegrationTest do
   alias FlezhaKafka.Consumer.Member
   alias FlezhaKafka.Consumer.Partition
   alias FlezhaKafka.Test.Helpers
+  alias FlezhaTest.Helper.NodeTestHelper
+  alias FlezhaTest.Helper.Telemetry
   alias KafkaEx.API
   alias KafkaEx.Client.NodeSelector
   alias KafkaEx.Consumer.ConsumerGroup
@@ -221,10 +223,11 @@ defmodule FlezhaKafka.ConsumerIntegrationTest do
       topic = new_topic(client, 1)
       {:ok, _} = API.produce(client, topic, 0, for(i <- 1..1_000, do: %{value: "#{i}"}))
       lag_event = [:flezha, :plugin, :kafka_consumer, :lag]
-      FlezhaKafka.Test.Helpers.capture(lag_event)
+      Telemetry.capture(lag_event)
 
       capture_log(fn ->
-        {_opts, member} = start_consumer(topic, %{overwatcher_pid: spawn_link(&Helpers.park/0)})
+        {_opts, member} =
+          start_consumer(topic, %{overwatcher_pid: spawn_link(&NodeTestHelper.park/0)})
 
         assert_receive {:telemetry, ^lag_event, %{lag: lag}, %{topic: ^topic, partition: 0}},
                        30_000
@@ -311,10 +314,10 @@ defmodule FlezhaKafka.ConsumerIntegrationTest do
   defp stop_member(member) do
     with %{group: group} when is_pid(group) <- member_state(member) do
       ref = Process.monitor(group)
-      Helpers.ensure_stopped(member)
+      NodeTestHelper.ensure_stopped(member)
       assert_receive {:DOWN, ^ref, _, _, _}, 10_000
     else
-      _stopped_or_joining -> Helpers.ensure_stopped(member)
+      _stopped_or_joining -> NodeTestHelper.ensure_stopped(member)
     end
   end
 
@@ -484,5 +487,5 @@ defmodule FlezhaKafka.ConsumerIntegrationTest do
   # Topics and groups outlive a run, so a name is unique across runs too.
   defp uid(), do: "#{System.os_time(:millisecond)}_#{System.unique_integer([:positive])}"
 
-  defp wait(fun), do: Helpers.wait_until(fun, 30_000, 100)
+  defp wait(fun), do: NodeTestHelper.wait_until(fun, 30_000, 100)
 end

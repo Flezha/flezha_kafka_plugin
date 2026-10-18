@@ -6,8 +6,8 @@ defmodule FlezhaKafka.ProducerWorkerTimestampTest do
   """
 
   alias FlezhaKafka.ProducerWorker
-  alias FlezhaKafka.Test.Helpers
   alias FlezhaKafka.Test.Fakes, as: Fakes
+  alias FlezhaTest.Helper.NodeTestHelper
 
   # async: false: registered singletons.
 
@@ -27,7 +27,7 @@ defmodule FlezhaKafka.ProducerWorkerTimestampTest do
       GenServer.start_link(
         ProducerWorker,
         Map.merge(Fakes.worker_spec("ts-test-#{System.unique_integer([:positive])}"), %{
-          worker_pid: spawn(&Helpers.park/0),
+          worker_pid: spawn(&NodeTestHelper.park/0),
           topic: @topic,
           partition: @partition,
           linger_ms: 5,

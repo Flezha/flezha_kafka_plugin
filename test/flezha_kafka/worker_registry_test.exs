@@ -1,6 +1,6 @@
 defmodule FlezhaKafka.WorkerRegistryTest do
   alias FlezhaKafka.WorkerRegistry
-  alias FlezhaKafka.Test.Helpers
+  alias FlezhaTest.Helper.NodeTestHelper
 
   # async: false: registered singletons.
 
@@ -194,7 +194,7 @@ defmodule FlezhaKafka.WorkerRegistryTest do
 
       Process.exit(pid1, :kill)
 
-      assert Helpers.wait_until(fn -> WorkerRegistry.inspect_state(reg) == %{} end, 500, 5)
+      assert NodeTestHelper.wait_until(fn -> WorkerRegistry.inspect_state(reg) == %{} end, 500, 5)
 
       assert {:ok, pid2, _ref2} = WorkerRegistry.acquire(identity, reg)
       assert_receive {:starter_called, _, _}
@@ -437,7 +437,7 @@ defmodule FlezhaKafka.WorkerRegistryTest do
       Process.exit(worker_pid, :kill)
       # The death is handled (its monitor gone) and the pending refs it
       # snapshotted are dropped once the linger lapses.
-      assert Helpers.wait_until(
+      assert NodeTestHelper.wait_until(
                fn ->
                  state = :sys.get_state(reg)
                  state.worker_monitors == %{} and state.pending_refs == %{}

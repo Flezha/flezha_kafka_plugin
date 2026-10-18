@@ -8,13 +8,13 @@ defmodule FlezhaKafka.LanesTest do
   use Mimic
 
   import ExUnit.CaptureLog
-  import FlezhaKafka.Test.Helpers, only: [set_mimic_global_until_exit: 1]
+  import FlezhaTest.Helper.MimicGlobal
 
   alias FlezhaKafka.Producer
   alias FlezhaKafka.ProducerWorker
   alias FlezhaKafka.Test.Fakes
-  alias FlezhaKafka.Test.Helpers
   alias FlezhaKafka.WorkerRegistry
+  alias FlezhaTest.Helper.NodeTestHelper
   alias KafkaEx.Producer.Partitioner
 
   setup :set_mimic_global_until_exit
@@ -64,7 +64,7 @@ defmodule FlezhaKafka.LanesTest do
   test "a forced fresh client resends every partition's window, not only the failing one's" do
     pid = start_choosing_worker(retries: 0)
     Fakes.seed_registry_ref(pid, {{[{"k", 9092}], 0, 0}, make_ref()})
-    stub(WorkerRegistry, :force_replace, fn _identity -> {:ok, spawn(&Helpers.park/0)} end)
+    stub(WorkerRegistry, :force_replace, fn _identity -> {:ok, spawn(&NodeTestHelper.park/0)} end)
 
     delivered = Task.async(fn -> ProducerWorker.enqueue(pid, "a1", %{"flz.key" => @key_a}) end)
     {_ref_a, 0} = dispatched()
@@ -96,7 +96,7 @@ defmodule FlezhaKafka.LanesTest do
       Fakes.answer(pid, ref_a, Fakes.ok_response(@topic, 0))
     end
 
-    assert Helpers.wait_until(
+    assert NodeTestHelper.wait_until(
              fn -> ProducerWorker.stats(pid).partitions[0].in_flight == 0 end,
              1_000
            )
@@ -123,7 +123,7 @@ defmodule FlezhaKafka.LanesTest do
         {registry_ref, _new_worker} = Fakes.expect_worker_swap(pid)
         send(pid, {:kafka_worker_dead, registry_ref, :killed})
 
-        assert Helpers.wait_until(fn -> :sys.get_state(pid).producer_id == 4242 end, 1_000)
+        assert NodeTestHelper.wait_until(fn -> :sys.get_state(pid).producer_id == 4242 end, 1_000)
         assert %{idempotent: true, max_in_flight: 5} = :sys.get_state(pid)
       end)
 

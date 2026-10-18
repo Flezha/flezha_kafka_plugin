@@ -16,14 +16,14 @@ defmodule FlezhaKafka.ProducerTest do
   alias Flezha.Plugin.ProviderBehaviour.Options, as: ProviderOptions
   alias FlezhaKafka.Producer
   alias FlezhaKafka.ProducerWorker
-  alias FlezhaKafka.Test.Helpers
   alias FlezhaKafka.WorkerRegistry
+  alias FlezhaTest.Helper.NodeTestHelper
 
   # async: false: Mimic global mode; Mimic stubs; the primary Logger.
 
   use ExUnit.Case, async: false
   use Mimic
-  import FlezhaKafka.Test.Helpers, only: [set_mimic_global_until_exit: 1]
+  import FlezhaTest.Helper.MimicGlobal
 
   # Some cases start a real ProducerWorker with no broker reachable, so KafkaEx
   # logs an :nxdomain connect error + crash report by design; capture so a green
@@ -158,7 +158,7 @@ defmodule FlezhaKafka.ProducerTest do
     # The Registry clears the entry from the worker's exit, which lands after
     # `stop_worker/2` returns; settle it so this asserts the no-entry answer
     # rather than whichever answer won the race.
-    assert Helpers.wait_until(fn -> registered(plugin_id) == [] end, 1_000)
+    assert NodeTestHelper.wait_until(fn -> registered(plugin_id) == [] end, 1_000)
     assert {:error, :no_producer} = Producer.stats(plugin_id)
   end
 
@@ -545,7 +545,7 @@ defmodule FlezhaKafka.ProducerTest do
           state
           | send_fn: fn _w, _r, _ns ->
               send(test_pid, :broker_entered)
-              Helpers.park()
+              NodeTestHelper.park()
               {:ok, make_ref()}
             end
         }
@@ -671,14 +671,14 @@ defmodule FlezhaKafka.KafkaSaslRedactionTest do
   # async: false: Mimic global mode; Mimic stubs; OS environment variables.
   use ExUnit.Case, async: false
   use Mimic
-  import FlezhaKafka.Test.Helpers, only: [set_mimic_global_until_exit: 1]
+  import FlezhaTest.Helper.MimicGlobal
 
   alias Flezha.Plugin
   alias FlezhaKafka.Producer
   alias FlezhaKafka.ProducerWorker
   alias Flezha.Plugin.Provider.WorkerSup
   alias Flezha.Plugin.ProviderBehaviour.Options, as: ProviderOptions
-  alias FlezhaKafka.Test.Helpers
+  alias FlezhaTest.Helper.NodeTestHelper
 
   setup :set_mimic_global_until_exit
 
@@ -702,7 +702,7 @@ defmodule FlezhaKafka.KafkaSaslRedactionTest do
 
   defp fake_client_stubs(test_pid) do
     stub(KafkaEx, :start_link_worker, fn :no_name, worker_opts ->
-      client = spawn(&Helpers.park/0)
+      client = spawn(&NodeTestHelper.park/0)
       send(test_pid, {:client_started, client, worker_opts})
       {:ok, client}
     end)

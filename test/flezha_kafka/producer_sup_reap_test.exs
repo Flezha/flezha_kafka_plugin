@@ -19,7 +19,7 @@ defmodule FlezhaKafka.ProducerSupReapTest do
   alias FlezhaKafka.ProducerWorker
   alias Flezha.Plugin.Provider.WorkerSup
   alias Flezha.Plugin.ProviderBehaviour.Options, as: ProviderOptions
-  alias FlezhaKafka.Test.Helpers
+  alias FlezhaTest.Helper.NodeTestHelper
 
   @family WorkerSup.family(Producer)
 
@@ -75,7 +75,7 @@ defmodule FlezhaKafka.ProducerSupReapTest do
   end
 
   defp fake_worker do
-    pid = spawn(&Helpers.park/0)
+    pid = spawn(&NodeTestHelper.park/0)
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
     pid
   end

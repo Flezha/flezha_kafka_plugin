@@ -11,8 +11,8 @@ defmodule FlezhaKafka.RegistryFamilyTest do
   alias Flezha.Plugin.ProviderBehaviour.Options, as: ProviderOptions
   alias FlezhaKafka.Producer
   alias FlezhaKafka.ProducerWorker
-  alias FlezhaKafka.Test.Helpers
   alias FlezhaKafka.WorkerRegistry
+  alias FlezhaTest.Helper.NodeTestHelper
 
   @family WorkerSup.family(Producer)
 
@@ -37,7 +37,7 @@ defmodule FlezhaKafka.RegistryFamilyTest do
 
     {:ok, prepared} = Producer.init_provider(normalised)
     [{key, spec}] = Producer.worker_specs(prepared)
-    spec = Map.put(spec, :worker_pid, spawn(&Helpers.park/0))
+    spec = Map.put(spec, :worker_pid, spawn(&NodeTestHelper.park/0))
 
     {:ok, _worker} =
       WorkerSup.ensure_worker(@family, key, {ProducerWorker, spec}, &Process.alive?/1, :permanent)
@@ -49,7 +49,7 @@ defmodule FlezhaKafka.RegistryFamilyTest do
     Process.exit(registry, :kill)
     assert_receive {:DOWN, ^ref, :process, ^registry, :killed}, 1_000
 
-    assert Helpers.wait_until(fn -> registry_pid() not in [nil, registry] end, 1_000, 5)
+    assert NodeTestHelper.wait_until(fn -> registry_pid() not in [nil, registry] end, 1_000, 5)
     assert WorkerRegistry.ensure_started() == server
   end
 end

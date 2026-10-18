@@ -17,7 +17,8 @@ defmodule FlezhaKafka.ProducerWorkerBlockedBoundTest do
   alias FlezhaKafka.Producer
   alias FlezhaKafka.ProducerWorker
   alias FlezhaKafka.Test.Fakes
-  alias FlezhaKafka.Test.Helpers
+  alias FlezhaTest.Helper.NodeTestHelper
+  alias FlezhaTest.Helper.ProviderPrepare
 
   @queue_max 10
   @block_ms 100
@@ -31,21 +32,25 @@ defmodule FlezhaKafka.ProducerWorkerBlockedBoundTest do
     start_supervised!(DlqStore)
     rc = "kb689_" <> Integer.to_string(System.unique_integer([:positive]))
     cell_id = {rc, "task", "k1"}
-    :ok = Helpers.stub_outbox_owner(cell_id)
+    :ok = ProviderPrepare.stub_outbox_owner(cell_id)
 
     {pid, opts} = start_full_worker(queue_block_timeout_ms: @block_ms)
     Fakes.attach(:dropped)
 
-    late = [Helpers.guaranteed_metadata(cell_id, 1) | List.duplicate(%{}, 19)]
+    late = [ProviderPrepare.guaranteed_metadata(cell_id, 1) | List.duplicate(%{}, 19)]
 
     log =
       capture_log(fn ->
         tasks = for md <- late, do: Task.async(fn -> timed_dispatch(opts, md) end)
 
-        assert Helpers.wait_until(fn -> ProducerWorker.stats(pid)[:waiting] == 20 end, 1_000, 5)
+        assert NodeTestHelper.wait_until(
+                 fn -> ProducerWorker.stats(pid)[:waiting] == 20 end,
+                 1_000,
+                 5
+               )
 
         for elapsed_ms <- Task.await_many(tasks, 2_000), do: assert(elapsed_ms >= @block_ms)
-        assert :ok = Helpers.assert_confirmed([{:cursor, 1}], 1_000)
+        assert :ok = ProviderPrepare.assert_confirmed([{:cursor, 1}], 1_000)
       end)
 
     stats = ProducerWorker.stats(pid)
@@ -67,7 +72,7 @@ defmodule FlezhaKafka.ProducerWorkerBlockedBoundTest do
 
     assert_received {:dispatched, first, _request}
     task = Task.async(fn -> dispatch(opts, "late") end)
-    assert Helpers.wait_until(fn -> ProducerWorker.stats(pid)[:waiting] == 1 end, 1_000, 5)
+    assert NodeTestHelper.wait_until(fn -> ProducerWorker.stats(pid)[:waiting] == 1 end, 1_000, 5)
 
     Fakes.answer(pid, first, Fakes.ok_response(Fakes.topic(), Fakes.partition()))
 
