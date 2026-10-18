@@ -10,7 +10,7 @@ and injects every record of its share of the partitions as one input, committing
 offsets as the relay's input durability says. Both are built on the `kafka_ex` client.
 
 The contracts (options, partitioning, headers, delivery, commits, health, telemetry) are the
-core's pages `docs/plugins/kafka_producer.md` and `docs/plugins/kafka_consumer.md`; this
+core's pages `docs/public/plugins/kafka_producer.md` and `docs/public/plugins/kafka_consumer.md`; this
 README covers the repository.
 
 ## Layout
@@ -51,8 +51,8 @@ RUSTLER_SKIP_COMPILATION=true mix format --check-formatted
 `mix test` runs with `--no-start`: no controller boots, and the tests start the providers'
 worker families and stand in for the broker and the relay. The catalogue test fails when a
 code the producer refuses with is missing from the core's `flz_transport/errors.json`, and the
-docs test when the option table of `docs/plugins/kafka_producer.md` or
-`docs/plugins/kafka_consumer.md` differs from its provider's declaration, printing the table to
+docs test when the option table of `docs/public/plugins/kafka_producer.md` or
+`docs/public/plugins/kafka_consumer.md` differs from its provider's declaration, printing the table to
 put there.
 
 The integration tests need the core's dev broker, which advertises `localhost:19092` to the

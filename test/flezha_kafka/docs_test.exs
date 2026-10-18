@@ -3,7 +3,7 @@ defmodule FlezhaKafka.DocsTest do
 
   alias Flezha.Plugin.ProviderBehaviour.Options
 
-  @pages Mix.Project.deps_paths()[:flezha] |> Path.join("docs/plugins")
+  @pages Mix.Project.deps_paths()[:flezha] |> Path.join("docs/public/plugins")
 
   for {provider, page} <- [
         {FlezhaKafka.Producer, "kafka_producer.md"},

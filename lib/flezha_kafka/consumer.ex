@@ -12,7 +12,7 @@ defmodule FlezhaKafka.Consumer do
   controllers. One group member per binding: not shareable, and refused on a
   partitioned relay, whose members a record's key decides between. Options,
   the input's metadata, delivery, health and telemetry:
-  `docs/plugins/kafka_consumer.md` in the core.
+  `docs/public/plugins/kafka_consumer.md` in the core.
   """
 
   alias Flezha.Plugin.Extension.Ctx

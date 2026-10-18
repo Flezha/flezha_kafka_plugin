@@ -9,7 +9,7 @@ defmodule FlezhaKafka.Producer do
   partition and keeps a lane per partition. The dispatch holds a
   delivery-guaranteed output for the worker to confirm or park; a plain output
   holds nothing. Options, partitioning, headers and telemetry:
-  `docs/plugins/kafka_producer.md` in the core.
+  `docs/public/plugins/kafka_producer.md` in the core.
   """
 
   alias Flezha.Plugin.Extension.Ctx
