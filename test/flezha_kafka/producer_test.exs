@@ -18,6 +18,7 @@ defmodule FlezhaKafka.ProducerTest do
   alias FlezhaKafka.ProducerWorker
   alias FlezhaKafka.WorkerRegistry
   alias FlezhaTest.Helper.NodeTestHelper
+  alias FlezhaTest.Helper.Telemetry
 
   # async: false: Mimic global mode; Mimic stubs; the primary Logger.
 
@@ -597,20 +598,7 @@ defmodule FlezhaKafka.ProducerTest do
         }
       end)
 
-      handler_id = "kafka-test-failed-#{System.unique_integer([:positive])}"
-      test_pid = self()
-
-      :ok =
-        :telemetry.attach(
-          handler_id,
-          [:flezha, :plugin, :kafka, :failed],
-          fn name, measurements, metadata, _ ->
-            send(test_pid, {:telemetry, name, measurements, metadata})
-          end,
-          nil
-        )
-
-      on_exit(fn -> :telemetry.detach(handler_id) end)
+      Telemetry.capture([:flezha, :plugin, :kafka, :failed])
 
       ctx = %Ctx.IO{relay_id: "p", namespace: "n", message: "x", metadata: %{}}
       assert {:ok, ^ctx} = Producer.on_output(ctx, opts)

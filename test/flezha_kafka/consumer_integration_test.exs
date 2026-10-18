@@ -15,6 +15,7 @@ defmodule FlezhaKafka.ConsumerIntegrationTest do
   alias FlezhaKafka.Consumer.Partition
   alias FlezhaKafka.Test.Helpers
   alias FlezhaTest.Helper.NodeTestHelper
+  alias FlezhaTest.Helper.ProviderPrepare
   alias FlezhaTest.Helper.Telemetry
   alias KafkaEx.API
   alias KafkaEx.Client.NodeSelector
@@ -328,7 +329,8 @@ defmodule FlezhaKafka.ConsumerIntegrationTest do
   end
 
   # Answer the next `n` ingests with `verdict`, in order.
-  defp take(n, verdict \\ :ok), do: for(_ <- 1..n, do: answer(verdict, 30_000))
+  defp take(n, verdict \\ :ok),
+    do: for(_ <- 1..n, do: ProviderPrepare.take_ingest(verdict, 30_000))
 
   # Up to `n` more ingests, answered `:ok`, as many as arrive in time.
   defp take_any(n, timeout \\ 1_000) do
@@ -342,16 +344,6 @@ defmodule FlezhaKafka.ConsumerIntegrationTest do
       end
     end)
     |> Enum.reverse()
-  end
-
-  defp answer(verdict, timeout) do
-    receive do
-      {:"$gen_call", from, {:ingest, body, md}} ->
-        GenServer.reply(from, verdict)
-        {body, md}
-    after
-      timeout -> flunk("no ingest within #{timeout} ms")
-    end
   end
 
   defp drain(), do: length(take_any(1_000, 0))
