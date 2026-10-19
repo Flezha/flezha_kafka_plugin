@@ -87,13 +87,9 @@ controller release.
 
 ## Installing into a local release
 
-```
-flz plugin install _build/flezha_kafka-0.1.0.fpz
-flz controller stop && flz controller start
-flz plugin list --installed
-```
-
-Then enable `kafka_producer` or `kafka_consumer` on a relay as its page shows.
+Install `_build/flezha_kafka-0.1.0.fpz` on a controller and restart it, as
+[Installing plugins](https://github.com/flezha/flezha/blob/main/docs/public/topics/plugins/installing_plugins.md#install-uninstall-and-sync)
+describes. Then enable `kafka_producer` or `kafka_consumer` on a relay as its page shows.
 
 ## The end-to-end run
 
