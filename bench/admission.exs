@@ -34,18 +34,18 @@ defmodule FlezhaKafka.Bench.Admission do
 
   # The fields admission and the lane swap read, as the worker holds them.
   defp two_lanes do
-    state =
-      Map.merge(Lanes.new(0, false, 1, @queue_max), %{
-        lanes: %{},
-        configured_idempotent: false,
-        configured_max_in_flight: 1,
-        queue_max: @queue_max,
-        queue_overflow: :drop_nothing,
-        queue_block_timeout_ms: 5_000,
-        flag: :atomics.new(1, []),
-        full: MapSet.new(),
-        dropped_total: 0
-      })
+    worker = %{
+      lanes: %{},
+      configured_idempotent: false,
+      configured_max_in_flight: 1,
+      queue_max: @queue_max,
+      queue_overflow: :drop_nothing,
+      queue_block_timeout_ms: 5_000,
+      flag: Backlog.flag(),
+      dropped_total: 0
+    }
+
+    state = Map.merge(Lanes.new(0, false, 1, worker), worker)
 
     {:created, state} = Lanes.hold(state, 1)
     {:held, state} = Lanes.hold(state, 0)
@@ -55,13 +55,13 @@ defmodule FlezhaKafka.Bench.Admission do
   defp admit_all(state, record, records) do
     Enum.reduce(1..records//1, state, fn n, state ->
       {_held, state} = Lanes.hold(state, if(rem(n, 16) == 0, do: 1, else: 0))
-      {:admitted, state} = Window.admit_record(state, record, :async)
+      {:admitted, state} = Window.admit_record(state, record, :cast)
       drain_past_bound(state)
     end)
   end
 
   defp drain_past_bound(%{queue: %Backlog{frames: frames}} = state) when frames > @queue_max,
-    do: Lanes.mark_full(%{state | queue: Backlog.clear(state.queue)}, false)
+    do: %{state | queue: Backlog.clear(state.queue)}
 
   defp drain_past_bound(state), do: state
 end

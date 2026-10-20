@@ -4,7 +4,9 @@ defmodule FlezhaKafka.ProducerWorkerBlockedBoundTest do
   raises its full flag, and a dispatch that reads it up waits in a call until
   there is room, at most `queue_block_timeout_ms`, after which its record
   overflows. The worker holds `queue_max` records plus the one that found the
-  queue full on its way, never a queue of everything dispatched since.
+  queue full on its way, never a queue of everything dispatched since. The
+  package's one admission case: `Flezha.Process.BacklogAdmissionTest` covers
+  every policy.
   """
 
   use ExUnit.Case, async: false
@@ -66,21 +68,6 @@ defmodule FlezhaKafka.ProducerWorkerBlockedBoundTest do
 
     assert %{"code" => "kafka.exhausted", "details" => %{"reason" => "queue_full"}} =
              Jason.decode!(entry["error"])
-  end
-
-  test "a waiting dispatch is let in once a sent batch makes room" do
-    {pid, opts} =
-      start_full_worker(queue_block_timeout_ms: 60_000, send_fn: Fakes.forward_send_fn(self()))
-
-    assert_received {:dispatched, first, _request}
-    task = Task.async(fn -> dispatch(opts, "late") end)
-    assert NodeTestHelper.wait_until(fn -> ProducerWorker.stats(pid)[:waiting] == 1 end, 1_000, 5)
-
-    Fakes.answer(pid, first, Fakes.ok_response(Fakes.topic(), Fakes.partition()))
-
-    assert {:ok, %Ctx.IO{message: "late"}} = Task.await(task, 5_000)
-    assert_receive {:dispatched, _second, _request}, 1_000
-    assert %{waiting: 0, queue_depth: 1, dropped_total: 0} = ProducerWorker.stats(pid)
   end
 
   # A registered worker whose first batch is in flight, never answered unless

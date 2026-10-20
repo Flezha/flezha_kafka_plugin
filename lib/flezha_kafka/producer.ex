@@ -16,6 +16,7 @@ defmodule FlezhaKafka.Producer do
   alias Flezha.Plugin.Provider.WorkerSup
   alias Flezha.Plugin.ProviderBehaviour
   alias Flezha.Plugin.ProviderBehaviour.Options
+  alias Flezha.Process.Backlog
   alias Flezha.State.Outbox
   alias FlezhaKafka.Connection
   alias FlezhaKafka.ProducerWorker
@@ -259,7 +260,7 @@ defmodule FlezhaKafka.Producer do
     # when the retry ladder is permanently exhausted. A plain output holds
     # nothing and this is a no-op.
     Outbox.hold(md)
-    :ok = ProducerWorker.cast_enqueue(opts.producer, msg, md)
+    _ = Backlog.dispatch(opts.producer, {:enqueue_async, msg, md})
     {:ok, ctx}
   end
 

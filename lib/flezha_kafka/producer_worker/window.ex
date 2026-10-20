@@ -23,7 +23,6 @@ defmodule FlezhaKafka.ProducerWorker.Window do
   alias Flezha.Process.Backlog
   alias Flezha.State.Outbox
   alias FlezhaKafka.ProducerWorker.Client
-  alias FlezhaKafka.ProducerWorker.Lanes
   alias FlezhaKafka.ProducerWorker.Wire
   alias KafkaEx.Client.NodeSelector
 
@@ -33,47 +32,24 @@ defmodule FlezhaKafka.ProducerWorker.Window do
 
   # A full queue never discards a record unless the user chose a drop
   # strategy: the default is `:drop_nothing` for every record, guaranteed or not.
-  def admit_record(state, record, from_or_async) do
-    case Backlog.admit(state.queue, record, record.bytes, state.queue_overflow) do
+  # The lane's queue admits (`Backlog.offer/5`) and answers its waiter.
+  def admit_record(state, record, waiter) do
+    case Backlog.offer(state.queue, record, record.bytes, waiter) do
       {:queued, queue, evicted} ->
-        release(from_or_async)
         {:admitted, Enum.reduce(evicted, %{state | queue: queue}, &evict/2)}
 
-      {:refused, _queue, []} ->
-        state = record_drop(state, record, :drop_newest)
+      {:refused, queue, evicted} ->
+        state = Enum.reduce(evicted, %{state | queue: queue}, &evict/2)
+        {:dropped, record_drop(state, record, :drop_newest)}
 
-        case from_or_async do
-          :async -> {:dropped_async, state}
-          _from -> {:replied, {:error, {:queue_full, :overflow}}, state}
-        end
-
-      {:full, _queue} ->
-        overflow(state, record, from_or_async)
+      {:waiting, queue, []} ->
+        {:waiting, %{state | queue: queue}}
     end
   end
 
   defp evict(record, state) do
     reply_to_record(record, {:error, {:queue_full, :evicted}})
     record_drop(state, record, :drop_oldest)
-  end
-
-  # Room is made by a drained batch, never by evicting an admitted record. The
-  # lane is marked full, which raises the flag a dispatch reads before it casts.
-  # A cast already on its way is admitted past the bound; a synchronous caller,
-  # or a dispatch that read the flag up (`{:wait, from}`), waits for room.
-  defp overflow(state, record, :async),
-    do: {:admitted, state |> Lanes.mark_full(true) |> push(record)}
-
-  defp overflow(state, record, from) do
-    state = Lanes.mark_full(state, true)
-
-    Process.send_after(
-      self(),
-      {:block_timeout, state.partition, from},
-      state.queue_block_timeout_ms
-    )
-
-    {:blocked, %{state | blocked: :queue.in({from, record}, state.blocked)}}
   end
 
   # Every drop is counted for `stats/1` — telemetry alone is invisible to a
@@ -119,39 +95,18 @@ defmodule FlezhaKafka.ProducerWorker.Window do
     Enum.each(records, &Outbox.park(&1.metadata, &1.value, error, attempts))
   end
 
-  @doc "Let a dispatch that waited for room go: its record is in, or overflowed."
-  def release({:wait, from}), do: GenServer.reply(from, :ok)
-  def release(_from), do: :ok
-
   def reply_to_record(nil, _reply), do: :ok
   def reply_to_record(%{from: :async}, _reply), do: :ok
   def reply_to_record(%{from: from}, reply), do: GenServer.reply(from, reply)
 
-  defp push(state, record), do: %{state | queue: Backlog.push(state.queue, record, record.bytes)}
-
   @doc """
-  A wait for room ran out: a synchronous caller is answered `:queue_full`; a
-  waiting dispatch is let go and its record overflows, parked when guaranteed.
+  A wait for room ran out (`Backlog.block_timeout/2`): a waiting dispatch's
+  record overflows, parked when guaranteed.
   """
-  def block_timeout(state, from) do
-    case Enum.split_with(:queue.to_list(state.blocked), &(elem(&1, 0) == from)) do
-      {[], _kept} ->
-        state
-
-      {[{_from, record}], kept} ->
-        timed_out(%{state | blocked: :queue.from_list(kept)}, from, record)
-    end
-  end
-
-  defp timed_out(state, {:wait, _} = from, record) do
-    release(from)
-    park([record], :queue_full, 0)
-    record_drop(state, record, :drop_nothing)
-  end
-
-  defp timed_out(state, from, _record) do
-    GenServer.reply(from, {:error, {:queue_full, :timeout}})
-    state
+  def block_timeout(state, waiter) do
+    {queue, overflowed} = Backlog.block_timeout(state.queue, waiter)
+    park(overflowed, :queue_full, 0)
+    Enum.reduce(overflowed, %{state | queue: queue}, &record_drop(&2, &1, :drop_nothing))
   end
 
   # A batch is cut against a free window slot: while the window is full — or
@@ -198,10 +153,13 @@ defmodule FlezhaKafka.ProducerWorker.Window do
         %{state | sequence: next_seq, in_flight: state.in_flight ++ [batch]}
         |> do_send(batch)
         |> rotate_sticky()
-        |> process_blocked()
+        |> room()
         |> maybe_kick_batch()
     end
   end
+
+  # A drained batch made room: those waiting for it come in, oldest first.
+  defp room(state), do: %{state | queue: Backlog.room(state.queue)}
 
   # The sticky partition moves to another one, chosen at random, once a batch
   # has left from it, so unkeyed records spread over the topic batch by batch.
@@ -699,23 +657,6 @@ defmodule FlezhaKafka.ProducerWorker.Window do
     state
     |> maybe_resend()
     |> maybe_kick_batch()
-  end
-
-  # A drained batch made room: those waiting for it come in, oldest first, and
-  # the lane is no longer full once they all fit.
-  defp process_blocked(state) do
-    case :queue.out(state.blocked) do
-      {:empty, _} ->
-        Lanes.mark_full(state, not Backlog.fits?(state.queue, 0))
-
-      {{:value, {from, record}}, rest} ->
-        if Backlog.fits?(state.queue, record.bytes) do
-          release(from)
-          process_blocked(push(%{state | blocked: rest}, record))
-        else
-          state
-        end
-    end
   end
 
   defp elapsed_ms(state, batch), do: state.now_fn.() - batch.first_attempt_at
