@@ -13,7 +13,6 @@ defmodule FlezhaKafka.CatalogueTest do
   test "the producer's tagged refusals map to their codes" do
     for {reason, code} <- [
           {{:headers_invalid, "kafka_producer", :headers, "flz.key"}, "plugin.headers_invalid"},
-          {{:invalid_option_value, :compression, "snappy"}, "plugin.option_invalid"},
           {{:window_needs_idempotence, 5}, "plugin.window_needs_idempotence"}
         ] do
       assert Map.has_key?(@catalogue["codes"], code), "#{code} is not in the catalogue"

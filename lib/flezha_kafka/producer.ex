@@ -13,14 +13,12 @@ defmodule FlezhaKafka.Producer do
   """
 
   alias Flezha.Plugin.Extension.Ctx
-  alias Flezha.Plugin.Provider.HttpFetch
   alias Flezha.Plugin.Provider.WorkerSup
   alias Flezha.Plugin.ProviderBehaviour
+  alias Flezha.Plugin.ProviderBehaviour.Options
   alias Flezha.State.Outbox
   alias FlezhaKafka.Connection
   alias FlezhaKafka.ProducerWorker
-
-  @queue_overflow_policies [:drop_nothing, :drop_oldest, :drop_newest]
 
   use ProviderBehaviour,
     name: "kafka",
@@ -30,17 +28,6 @@ defmodule FlezhaKafka.Producer do
       Connection.rows() ++
         [
           topic: [type: :string, required: true, doc: "Destination topic"],
-          plugin_id: [type: :string, doc: "Plugin id; defaults to a generated one"],
-          channel: [
-            type: :names,
-            doc:
-              "The channel this plugin is attached to: only records naming it are produced. Several names, comma-separated, produce them all"
-          ],
-          channel_out: [
-            type: :names,
-            doc:
-              "Produce only records whose metadata channel matches; the explicit spelling. Several names, comma-separated, produce them all"
-          ],
           partition: [
             type: :int,
             min: 0,
@@ -61,20 +48,13 @@ defmodule FlezhaKafka.Producer do
               "Batch compression; `zstd` needs Kafka 2.1 or later; `snappy` and `lz4` are refused, the client library encodes them only with native code"
           ],
           headers: [
-            type: :json,
+            type: :headers,
             default: %{},
             doc:
               "Static record headers, a JSON object of strings; names starting `flz.` and `flezha.dedup_key` are refused"
           ],
           required_acks: [type: :int, default: -1, doc: "Broker acks; -1 is acks=all"],
           retries: [type: :int, default: 5, min: 0, doc: "Attempts per batch before parking it"],
-          retry_backoff_ms: [type: :int, default: 100, min: 1, doc: "First delay between retries"],
-          retry_max_backoff_ms: [
-            type: :int,
-            default: 5_000,
-            min: 1,
-            doc: "Ceiling for that delay"
-          ],
           delivery_timeout_ms: [
             type: :int,
             default: 30_000,
@@ -87,25 +67,6 @@ defmodule FlezhaKafka.Producer do
             default: 1_048_576,
             min: 1,
             doc: "Largest record batch produced, in encoded bytes"
-          ],
-          queue_max: [
-            type: :int,
-            default: 10_000,
-            min: 1,
-            doc: "Records held before the policy applies"
-          ],
-          queue_overflow: [
-            type: :enum,
-            values: @queue_overflow_policies,
-            default: :drop_nothing,
-            doc: "What a full queue does: block, drop the oldest, or drop the newest"
-          ],
-          queue_block_timeout_ms: [
-            type: :int,
-            default: 5_000,
-            min: 1,
-            doc:
-              "How long a dispatch waits on a full queue before the record overflows, or an enqueue before it is refused"
           ],
           idempotent: [
             type: :bool,
@@ -157,7 +118,11 @@ defmodule FlezhaKafka.Producer do
             min: 1,
             doc: "How often the shared broker client refreshes metadata"
           ]
-        ],
+        ] ++
+        Options.channel(:out, "record") ++
+        Options.plugin_id("a generated one") ++
+        Options.retry(retry_backoff_ms: 100) ++
+        Options.queue([:queue_max, :queue_overflow, :queue_block_timeout_ms]),
     worker: [
       module: ProducerWorker,
       restart: :permanent,
@@ -174,18 +139,16 @@ defmodule FlezhaKafka.Producer do
 
     with {:ok, opts} <- Connection.prepare(%{opts | plugin_id: plugin_id}),
          :ok <- validate_window(opts),
-         {:ok, headers} <- validate_headers(opts.headers) do
-      {:ok, %{opts | headers: headers, producer: WorkerSup.worker(__MODULE__, key(opts))}}
+         :ok <- refuse_reserved(opts.headers) do
+      {:ok, %{opts | producer: WorkerSup.worker(__MODULE__, key(opts))}}
     end
   end
 
   # A static header may not pass for one the producer writes from the output.
-  defp validate_headers(headers) do
-    with {:ok, headers} <- HttpFetch.validate_headers(headers, "kafka_producer") do
-      case Enum.find(Map.keys(headers), &reserved_header?/1) do
-        nil -> {:ok, headers}
-        name -> {:error, {:headers_invalid, "kafka_producer", :headers, name}}
-      end
+  defp refuse_reserved(headers) do
+    case Enum.find(Map.keys(headers), &reserved_header?/1) do
+      nil -> :ok
+      name -> {:error, {:headers_invalid, "kafka_producer", :headers, name}}
     end
   end
 
@@ -251,7 +214,7 @@ defmodule FlezhaKafka.Producer do
   # Postgres provider): they never land in worker state, child args, or the
   # persisted/returned opts. `auth_key` is what lets two plugins with the same
   # credentials share one broker client without the registry ever seeing the
-  # secret. Prefer `:sasl_password_env` — an inline password cannot survive a
+  # secret. Prefer `:password_env`: an inline password cannot survive a
   # restart from the redacted persisted opts.
   defp identity(opts) do
     resolved_auth = Connection.resolve_auth(opts)

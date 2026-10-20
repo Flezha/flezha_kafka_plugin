@@ -42,7 +42,8 @@ defmodule FlezhaKafka.ConsumerTest do
       assert opts.topics == ["trades"]
       assert opts.plugin_id == "kin"
       assert opts.start_at == "end"
-      assert opts.auth.password == "**redacted**"
+      assert opts.password == "**redacted**"
+      refute opts.auth.password
 
       # The secret reaches the client only through the member's closure.
       args = Member.args(opts)

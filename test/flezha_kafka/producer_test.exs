@@ -346,7 +346,8 @@ defmodule FlezhaKafka.ProducerTest do
 
         assert opts.auth[:mechanism] == expected
         assert opts.auth[:username] == "u"
-        assert opts.auth[:password] == "**redacted**"
+        assert opts.password == "**redacted**"
+        refute opts.auth[:password]
         WorkerSup.stop_worker(WorkerSup.family(Producer), key(plugin_id))
       end
     end
@@ -731,7 +732,8 @@ defmodule FlezhaKafka.KafkaSaslRedactionTest do
     # ...while the returned (and therefore persisted) opts are redacted. The
     # keys are the closed set `KafkaEx.Auth.Config` accepts, whichever spelling
     # the user wrote: validation normalises them at preparation.
-    assert returned.auth[:password] == "**redacted**"
+    assert returned.password == "**redacted**"
+    refute returned.auth[:password]
     assert returned.auth[:mechanism] == :plain
     # ...and nothing persisted carries it: the resolved credential is a
     # transient row, held in memory and dropped at the persistence boundary.
@@ -739,7 +741,7 @@ defmodule FlezhaKafka.KafkaSaslRedactionTest do
     refute inspect(persisted, limit: :infinity) =~ @secret
   end
 
-  test "sasl_password_env resolves the secret from the environment at client start" do
+  test "password_env resolves the secret from the environment at client start" do
     fake_client_stubs(self())
     suffix = System.unique_integer([:positive])
     env_var = "FLZ_TEST_SASL_PW_#{suffix}"
@@ -751,7 +753,7 @@ defmodule FlezhaKafka.KafkaSaslRedactionTest do
       topic: "sasl_topic_#{suffix}",
       plugin_id: "sasl-env-#{suffix}",
       auth: %{"mechanism" => "plain", "username" => "svc", "password" => "placeholder"},
-      sasl_password_env: env_var
+      password_env: env_var
     }
 
     {:ok, returned, _pid} = prepare_and_activate(opts)

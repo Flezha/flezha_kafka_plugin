@@ -18,6 +18,7 @@ defmodule FlezhaKafka.Consumer do
   alias Flezha.Plugin.Extension.Ctx
   alias Flezha.Plugin.Provider.WorkerSup
   alias Flezha.Plugin.ProviderBehaviour
+  alias Flezha.Plugin.ProviderBehaviour.Options
   alias FlezhaKafka.Connection
   alias FlezhaKafka.Consumer.Member
 
@@ -35,17 +36,6 @@ defmodule FlezhaKafka.Consumer do
             doc: "The topics to consume, comma-separated"
           ],
           group_id: [type: :string, required: true, doc: "The consumer group"],
-          channel: [
-            type: :names,
-            doc:
-              "The channel this plugin is attached to: the entry channel every record is injected on, and one name. Required, unless `channel_in` names it"
-          ],
-          channel_in: [
-            type: :names,
-            doc:
-              "Entry channel every record is injected on, and one name; the explicit spelling of `channel`. Required, unless `channel` names it"
-          ],
-          plugin_id: [type: :string, doc: "Plugin id; defaults to the id it was enabled under"],
           start_at: [
             type: :enum,
             values: ["beginning", "end"],
@@ -85,21 +75,11 @@ defmodule FlezhaKafka.Consumer do
             default: 5_000,
             min: 1,
             doc: "How often the lag of each assigned partition is read"
-          ],
-          failure_threshold: [
-            type: :int,
-            default: 3,
-            min: 1,
-            doc: "Refused batches in a row before the plugin reports unhealthy"
-          ],
-          idle_after_ms: [
-            type: :int,
-            default: 0,
-            min: 0,
-            doc:
-              "Age of the last settled lag read past which the source is idle; 0 derives it from `lag_interval_ms`"
           ]
-        ],
+        ] ++
+        Options.channel(:in, "record") ++
+        Options.plugin_id("the id it was enabled under") ++
+        Options.failure_threshold() ++ Options.idle_after(),
     worker: [module: Member, restart: :temporary]
 
   defp convert_value(:hosts, value), do: Connection.convert_hosts(value)
