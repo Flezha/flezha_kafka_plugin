@@ -2,6 +2,7 @@
   inputs: [
     "{mix,.formatter}.exs",
     "{config,lib}/**/*.{ex,exs}",
+    "bench/*.exs",
     "test/*.exs",
     "test/{flezha_kafka,support}/**/*.{ex,exs}",
     "test/e2e/runner/mix.exs",
