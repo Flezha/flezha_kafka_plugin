@@ -146,6 +146,16 @@ defmodule FlezhaKafka.ConsumerTest do
       assert_receive :batch_taken
     end
 
+    # Fails when: an absorbed or suspended verdict reads as a refusal, which
+    # would refetch a duplicate the relay already holds forever.
+    test "a set answered absorbed and suspended is taken and committed" do
+      host = Helpers.stand_in_host(:host, [{:ok, :absorbed}, {:ok, :suspended}])
+      records = [record(1, "a"), record(2, "b")]
+
+      assert {:sync_commit, _} = Partition.handle_message_set(records, state(host, true))
+      assert_receive :batch_taken
+    end
+
     test "a refused set exits uncommitted and tells the member" do
       host = Helpers.stand_in_host(:host, [:ok, {:error, :parked}])
 

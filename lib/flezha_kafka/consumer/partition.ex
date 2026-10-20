@@ -15,8 +15,12 @@ defmodule FlezhaKafka.Consumer.Partition do
   use KafkaEx.Consumer.GenConsumer
 
   alias Flezha.Plugin.Host
+  alias Flezha.Plugin.Host.MsgId
   alias Flezha.Plugin.ProviderBehaviour
+  alias Flezha.Relay.Ingest.Verdict
 
+  require MsgId
+  require Verdict
   require Logger
 
   @provider :kafka_consumer
@@ -65,7 +69,7 @@ defmodule FlezhaKafka.Consumer.Partition do
         @inject_timeout_ms
       )
 
-    case Enum.find(verdicts, &(&1 != :ok)) do
+    case Enum.find(verdicts, &(not Verdict.taken?(&1))) do
       nil ->
         send(state.member, :batch_taken)
         emit(:shipped, %{count: length(records)}, labels(state))
@@ -105,11 +109,11 @@ defmodule FlezhaKafka.Consumer.Partition do
     metadata =
       %{
         "channel" => state.channel,
-        "flz.msg_id" => "#{state.plugin_id}/#{position}",
         "kafka.topic" => state.topic,
         "kafka.partition" => Integer.to_string(state.partition),
         "kafka.offset" => Integer.to_string(record.offset)
       }
+      |> MsgId.stamp(state.plugin_id, position)
       |> put_text("kafka.timestamp", record.timestamp && Integer.to_string(record.timestamp))
       |> put_text("kafka.key", record.key)
 
