@@ -15,8 +15,6 @@ defmodule FlezhaKafka.Consumer do
   `docs/public/plugins/kafka_consumer.md` in the core.
   """
 
-  alias Flezha.Plugin.Extension.Ctx
-  alias Flezha.Plugin.Provider.WorkerSup
   alias Flezha.Plugin.ProviderBehaviour
   alias Flezha.Plugin.ProviderBehaviour.Options
   alias FlezhaKafka.Connection
@@ -24,8 +22,13 @@ defmodule FlezhaKafka.Consumer do
 
   use ProviderBehaviour,
     name: "kafka_consumer",
-    feeds: true,
     shareable: false,
+    source: [
+      partitioned: :refuse,
+      idle_interval: :lag_interval_ms,
+      absent: :no_member,
+      dead: :member_dead
+    ],
     telemetry: [rebalanced: :event, lag: :metric],
     options:
       Connection.rows() ++
@@ -87,45 +90,7 @@ defmodule FlezhaKafka.Consumer do
 
   @doc "Validate and prepare. Connects to nothing: the member does, at activation."
   @impl true
-  def init_provider(opts) do
-    with :ok <- ProviderBehaviour.require_entry_channel(opts, __MODULE__),
-         :ok <- ProviderBehaviour.refuse_partitioned(opts, __MODULE__),
-         {:ok, opts} <- Connection.prepare(opts) do
-      {:ok, %{opts | plugin_id: opts.plugin_id || opts[:source_plugin_id]}}
-    end
-  end
-
-  @doc "One group member per binding, started with `Consumer.Member.args/1`."
-  @impl true
-  def worker_specs(opts), do: [{WorkerSup.key(opts), Member.args(opts)}]
-
-  @doc """
-  Teardown is the host's. This callback exists so the provider can be hooked at
-  all: every hook requires the matching export.
-  """
-  @impl true
-  def on_terminate(%Ctx.Terminate{}, _opts), do: :ok
-
-  @doc """
-  Health verdict from the member: `failure_threshold` refused batches in a row
-  name the refusal, and a member whose last settled lag read is older than the
-  idle window (a broker that is away, a group that cannot join) says how old.
-  """
-  @impl true
-  @spec health(map()) :: ProviderBehaviour.health_verdict()
-  def health(opts) do
-    ProviderBehaviour.worker_health(
-      opts,
-      # The outer budget exceeds the probe's own, so the precise
-      # `:probe_timeout` is not replaced by the generic budget verdict.
-      [
-        absent: :no_member,
-        dead: :member_dead,
-        budget_ms: 2 * ProviderBehaviour.probe_budget_ms()
-      ],
-      &member_health(&1, opts)
-    )
-  end
+  def init_provider(opts), do: Connection.prepare(opts)
 
   @doc """
   What `flz relay info` shows beneath the plugin: the group, the topics, the
@@ -148,18 +113,4 @@ defmodule FlezhaKafka.Consumer do
 
     Map.merge(%{group_id: opts.group_id, topics: opts.topics, health: health(opts)}, facts)
   end
-
-  defp member_health(pid, opts) do
-    case Member.probe(pid) do
-      {:ok, facts} -> verdict(facts, opts)
-      :timeout -> {:fail_open, :probe_timeout}
-    end
-  end
-
-  defp verdict(%{consecutive_failures: failures, last_error: error}, opts)
-       when failures >= opts.failure_threshold,
-       do: {:unhealthy, {:read_failed, error}}
-
-  defp verdict(%{last_settled_at: settled_at}, opts),
-    do: ProviderBehaviour.idle_verdict(settled_at, opts.idle_after_ms, opts.lag_interval_ms)
 end

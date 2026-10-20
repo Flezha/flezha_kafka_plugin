@@ -16,14 +16,19 @@ defmodule FlezhaKafka.Consumer.Member do
   count or a reason, never a record or a credential.
   """
 
+  alias Flezha.Plugin.Provider.Worker
   alias Flezha.Plugin.ProviderBehaviour
-  alias Flezha.Process.Watch
   alias FlezhaKafka.Connection
   alias FlezhaKafka.Consumer.Partition
   alias KafkaEx.API
   alias KafkaEx.Consumer.ConsumerGroup
 
-  use GenServer
+  # The facts the provider's `health/1` and `inspect_state/1` read: the
+  # refusal run and its last error, the time of the last settled lag read, the
+  # assignment and the lag it saw.
+  use Worker,
+    facts: [:consecutive_failures, :last_error, :last_settled_at, :assignment, :lag]
+
   use Flezha.Process.Timer, keys: [:join, :lag]
 
   require Logger
@@ -42,11 +47,6 @@ defmodule FlezhaKafka.Consumer.Member do
   # Offset fetch and commit v1 keep offsets in Kafka rather than ZooKeeper;
   # fetch v4 is the first to carry record headers.
   @api_versions %{fetch: 4, offset_fetch: 1, offset_commit: 1}
-
-  @doc "Started by the extension table at activation, from the declared spec."
-  @spec start_link(map()) :: GenServer.on_start()
-  def start_link(args) when is_map(args),
-    do: GenServer.start_link(__MODULE__, args, name: Map.fetch!(args, :name))
 
   @doc """
   The member's start arguments, from the plugin's prepared options. The broker
@@ -73,14 +73,6 @@ defmodule FlezhaKafka.Consumer.Member do
     |> Map.put(:connect, fn -> Connection.client_opts(opts) end)
   end
 
-  @doc """
-  The facts the provider's `health/1` and `inspect_state/1` read: the refusal
-  run and its last error, the time of the last settled lag read, the
-  assignment and the lag it saw. `:timeout` when the member does not answer.
-  """
-  @spec probe(pid()) :: {:ok, map()} | :timeout
-  def probe(pid), do: ProviderBehaviour.ask(pid, :health_probe)
-
   @impl true
   def init(args) do
     # A stop leaves the group, which only a trapped shutdown reaches.
@@ -89,18 +81,8 @@ defmodule FlezhaKafka.Consumer.Member do
     state =
       args
       |> Map.drop([:name])
-      |> Map.merge(%{
-        group: nil,
-        client: nil,
-        watch: Watch.watch(Watch.new(), args.overwatcher_pid, :host),
-        read: nil,
-        assignment: nil,
-        lag: %{},
-        consecutive_failures: 0,
-        last_error: nil,
-        last_settled_at: now(),
-        timers: %{}
-      })
+      |> Map.merge(Worker.fields(args))
+      |> Map.merge(%{group: nil, client: nil, read: nil, assignment: nil, lag: %{}})
 
     # Scheduled, never run here: activation is synchronous in the host.
     {:ok, state |> arm_timer(:join, 0, :join) |> arm_lag()}
@@ -120,37 +102,15 @@ defmodule FlezhaKafka.Consumer.Member do
   def handle_info({:DOWN, ref, :process, _child, reason}, %{read: {_pid, ref}} = state),
     do: {:noreply, settle(%{state | read: nil}, {:error, {:exit, reason}})}
 
-  # The relay this member feeds is gone.
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
-    case Watch.down(state.watch, ref) do
-      {[:host], _watch} -> {:stop, :normal, state}
-      _stale -> {:noreply, state}
-    end
-  end
-
   def handle_info({:EXIT, pid, reason}, %{group: group, client: client} = state)
       when pid in [group, client] and is_pid(pid),
       do:
         {:noreply,
          rejoin_later(state, if(pid == group, do: "exited", else: "lost its lag client"), reason)}
 
-  def handle_info(:batch_taken, state),
-    do: {:noreply, %{state | consecutive_failures: 0, last_error: nil}}
+  def handle_info(:batch_taken, state), do: {:noreply, Worker.recovered(state)}
 
-  def handle_info({:batch_refused, error}, state),
-    do:
-      {:noreply,
-       %{state | consecutive_failures: state.consecutive_failures + 1, last_error: error}}
-
-  def handle_info({:health_probe, from, ref}, state) do
-    send(
-      from,
-      {ref,
-       Map.take(state, [:consecutive_failures, :last_error, :last_settled_at, :assignment, :lag])}
-    )
-
-    {:noreply, state}
-  end
+  def handle_info({:batch_refused, error}, state), do: {:noreply, Worker.failed(state, error)}
 
   def handle_info(_other, state), do: {:noreply, state}
 
@@ -308,7 +268,7 @@ defmodule FlezhaKafka.Consumer.Member do
       emit(:lag, %{lag: value}, Map.merge(labels(state), %{topic: topic, partition: partition}))
     end
 
-    %{state | assignment: assignment, lag: lag, last_settled_at: now()}
+    Worker.settled(%{state | assignment: assignment, lag: lag})
   end
 
   defp settle(state, {:error, _reason}), do: state
@@ -321,6 +281,4 @@ defmodule FlezhaKafka.Consumer.Member do
 
   defp emit(verb, measurements, metadata),
     do: ProviderBehaviour.emit(@provider, verb, measurements, metadata)
-
-  defp now(), do: :erlang.monotonic_time(:millisecond)
 end
