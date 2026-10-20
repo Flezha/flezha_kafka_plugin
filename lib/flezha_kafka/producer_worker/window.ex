@@ -11,6 +11,11 @@ defmodule FlezhaKafka.ProducerWorker.Window do
   lane again.
   """
 
+  # The resend timer is the lane's own; the linger timer stays a raw field
+  # because `maybe_kick_batch/1` reads it per admitted record, and a dispatch
+  # or block timer is keyed by the batch or caller it belongs to.
+  use Flezha.Process.Timer, keys: [:retry]
+
   require Logger
 
   alias Flezha.Config.Backoff
@@ -250,7 +255,7 @@ defmodule FlezhaKafka.ProducerWorker.Window do
 
   @doc "The resend timer of `batch_id` fired: the window goes out again if that batch is owed."
   def retry_window(state, batch_id) do
-    state = %{state | retry_timer: nil}
+    state = timer_fired(state, :retry)
 
     if Enum.any?(state.in_flight, &(&1.id == batch_id and &1.status == :pending)),
       do: resend_window(state),
@@ -614,7 +619,7 @@ defmodule FlezhaKafka.ProducerWorker.Window do
   # One timer for the whole resend run: the oldest owed batch sets the backoff
   # and its arrival resends everything owed behind it.
   defp schedule_retry(state) do
-    state = cancel_retry_timer(state)
+    state = cancel_timer(state, :retry)
 
     case Enum.find(state.in_flight, &(&1.status == :pending)) do
       nil ->
@@ -623,7 +628,7 @@ defmodule FlezhaKafka.ProducerWorker.Window do
       batch ->
         backoff = retry_backoff_ms(state, batch.attempt)
         message = {:retry_window, state.partition, batch.id}
-        %{state | retry_timer: Process.send_after(self(), message, backoff)}
+        arm_timer(state, :retry, backoff, message)
     end
   end
 
@@ -725,13 +730,8 @@ defmodule FlezhaKafka.ProducerWorker.Window do
 
   def cancel_timers(state) do
     if is_reference(state.linger_timer), do: Process.cancel_timer(state.linger_timer)
-    state = cancel_retry_timer(state)
+    state = cancel_timer(state, :retry)
     %{state | in_flight: Enum.map(state.in_flight, &cancel_dispatch_timer/1), linger_timer: nil}
-  end
-
-  defp cancel_retry_timer(%{retry_timer: t} = state) do
-    if is_reference(t), do: Process.cancel_timer(t)
-    %{state | retry_timer: nil}
   end
 
   defp cancel_dispatch_timer(%{dispatch_timer: t} = batch) do

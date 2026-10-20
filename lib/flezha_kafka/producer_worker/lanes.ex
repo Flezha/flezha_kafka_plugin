@@ -25,7 +25,7 @@ defmodule FlezhaKafka.ProducerWorker.Lanes do
     :queue,
     :linger_timer,
     :in_flight,
-    :retry_timer,
+    :timers,
     :blocked,
     :consecutive_failures,
     :last_error
@@ -49,7 +49,8 @@ defmodule FlezhaKafka.ProducerWorker.Lanes do
       linger_timer: nil,
       # Batches outstanding on the wire, oldest first.
       in_flight: [],
-      retry_timer: nil,
+      # The lane's resend timer (`Flezha.Process.Timer`).
+      timers: %{},
       blocked: :queue.new(),
       # Batches given up on in a row, and the last reason, are a partition's
       # own: a partition that delivers says nothing about one that does not.

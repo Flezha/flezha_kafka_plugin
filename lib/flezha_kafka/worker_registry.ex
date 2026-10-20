@@ -14,9 +14,11 @@ defmodule FlezhaKafka.WorkerRegistry do
   """
 
   use GenServer
+  use Flezha.Process.Timer, keys: [:linger]
 
   require Logger
 
+  alias Flezha.Config.Durations
   alias Flezha.Plugin.Provider.WorkerSup
   alias Flezha.Process.Cspec
   alias Flezha.SDK.SafeCall
@@ -24,9 +26,6 @@ defmodule FlezhaKafka.WorkerRegistry do
   # Started on the first acquire under the producer's own family, which the
   # controller supervises: a package declares no application callback.
   @server WorkerSup.via(WorkerSup.family(FlezhaKafka.Producer), :registry)
-
-  # How long a caller waits for a release or a state read.
-  @call_ms 5_000
 
   # How long a client nobody holds stays up for the next acquire.
   @linger_ms 5_000
@@ -83,12 +82,14 @@ defmodule FlezhaKafka.WorkerRegistry do
 
   @spec acquire(identity(), GenServer.server()) :: {:ok, pid(), ref()} | {:error, term()}
   def acquire(identity, server) do
-    GenServer.call(server, {:acquire, identity, self()}, 30_000)
+    GenServer.call(server, {:acquire, identity, self()}, Durations.get(:plugin_client_call_ms))
   end
 
   @spec release(ref(), GenServer.server()) :: :ok
   def release(ref, server \\ @server) do
-    SafeCall.bounded(server, {:release, ref}, @call_ms, on_error: :ok)
+    SafeCall.bounded(server, {:release, ref}, Durations.get(:plugin_worker_call_ms),
+      on_error: :ok
+    )
   end
 
   @doc """
@@ -105,7 +106,7 @@ defmodule FlezhaKafka.WorkerRegistry do
   """
   @spec swap(ref(), GenServer.server()) :: {:ok, pid(), ref()} | {:error, term()}
   def swap(old_ref, server \\ @server) do
-    GenServer.call(server, {:swap, old_ref, self()}, 30_000)
+    GenServer.call(server, {:swap, old_ref, self()}, Durations.get(:plugin_client_call_ms))
   end
 
   @doc """
@@ -125,7 +126,7 @@ defmodule FlezhaKafka.WorkerRegistry do
   """
   @spec refresh(ref(), GenServer.server()) :: {:ok, pid()} | {:error, term()}
   def refresh(ref, server \\ @server) do
-    GenServer.call(server, {:refresh, ref}, 30_000)
+    GenServer.call(server, {:refresh, ref}, Durations.get(:plugin_client_call_ms))
   end
 
   @doc """
@@ -137,13 +138,13 @@ defmodule FlezhaKafka.WorkerRegistry do
   """
   @spec force_replace(identity(), GenServer.server()) :: {:ok, pid()} | {:error, term()}
   def force_replace(identity, server \\ @server) do
-    GenServer.call(server, {:force_replace, identity}, 30_000)
+    GenServer.call(server, {:force_replace, identity}, Durations.get(:plugin_client_call_ms))
   end
 
   @doc false
   @spec inspect_state(GenServer.server()) :: map()
   def inspect_state(server \\ @server) do
-    SafeCall.bounded(server, :inspect_state, @call_ms, on_error: %{})
+    SafeCall.bounded(server, :inspect_state, Durations.get(:plugin_worker_call_ms), on_error: %{})
   end
 
   @impl true
@@ -162,7 +163,8 @@ defmodule FlezhaKafka.WorkerRegistry do
        tokens: %{},
        caller_monitors: %{},
        worker_monitors: %{},
-       pending_refs: %{}
+       pending_refs: %{},
+       timers: %{}
      }}
   end
 
@@ -185,9 +187,9 @@ defmodule FlezhaKafka.WorkerRegistry do
             {:reply, {:error, {:unexpected_start_result, other}}, state}
         end
 
-      %{linger: linger_timer} = entry ->
-        if linger_timer, do: Process.cancel_timer(linger_timer)
-        entry = %{entry | refs: entry.refs + 1, linger: nil}
+      entry ->
+        entry = %{entry | refs: entry.refs + 1}
+        state = cancel_timer(state, {:linger, key})
         state = %{state | entries: Map.put(state.entries, key, entry)}
         {token, state} = register_owner(state, key, caller)
         {:reply, {:ok, entry.pid, {key, token}}, state}
@@ -288,7 +290,7 @@ defmodule FlezhaKafka.WorkerRegistry do
          %{
            pid: entry.pid,
            refs: entry.refs,
-           linger?: not is_nil(entry.linger),
+           linger?: timer_armed?(state, {:linger, key}),
            callers: MapSet.size(entry.callers)
          }}
       end)
@@ -298,6 +300,8 @@ defmodule FlezhaKafka.WorkerRegistry do
 
   @impl true
   def handle_info({:linger_expired, key, pid}, state) do
+    state = timer_fired(state, {:linger, key})
+
     case Map.get(state.entries, key) do
       %{pid: ^pid, refs: 0, monitor: wmref} ->
         Process.demonitor(wmref, [:flush])
@@ -342,7 +346,7 @@ defmodule FlezhaKafka.WorkerRegistry do
 
         notify_swap(entry.callers, key, reason, :all)
 
-        if is_reference(entry.linger), do: Process.cancel_timer(entry.linger)
+        state = cancel_timer(state, {:linger, key})
 
         pending_refs =
           if MapSet.size(entry.callers) > 0 do
@@ -429,14 +433,13 @@ defmodule FlezhaKafka.WorkerRegistry do
     entry = %{
       pid: pid,
       refs: refs,
-      linger: nil,
       monitor: wmref,
       callers: callers,
       identity: identity
     }
 
     %{
-      state
+      cancel_timer(state, {:linger, key})
       | entries: Map.put(state.entries, key, entry),
         worker_monitors: Map.put(state.worker_monitors, wmref, key)
     }
@@ -518,22 +521,12 @@ defmodule FlezhaKafka.WorkerRegistry do
 
       entry ->
         new_refs = max(entry.refs - 1, 0)
+        state = %{state | entries: Map.put(state.entries, key, %{entry | refs: new_refs})}
 
-        entry =
-          if new_refs == 0 do
-            timer_ref =
-              Process.send_after(
-                self(),
-                {:linger_expired, key, entry.pid},
-                state.linger_ms
-              )
-
-            %{entry | refs: 0, linger: timer_ref}
-          else
-            %{entry | refs: new_refs}
-          end
-
-        %{state | entries: Map.put(state.entries, key, entry)}
+        if new_refs == 0,
+          do:
+            arm_timer(state, {:linger, key}, state.linger_ms, {:linger_expired, key, entry.pid}),
+          else: state
     end
   end
 
