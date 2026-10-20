@@ -22,6 +22,7 @@ defmodule FlezhaKafka.ProducerWorker do
 
   require Logger
 
+  alias Flezha.Config.Durations
   alias Flezha.Process.Cspec
   alias Flezha.SDK.SafeCall
   alias FlezhaKafka.ProducerWorker.Client
@@ -29,9 +30,6 @@ defmodule FlezhaKafka.ProducerWorker do
   alias FlezhaKafka.ProducerWorker.Wire
   alias FlezhaKafka.ProducerWorker.Window
   alias KafkaEx.Producer.Partitioner
-
-  # How long a caller waits for the worker's counters.
-  @call_ms 5_000
 
   @doc """
   Started by the extension table at activation, from the provider's declared
@@ -65,7 +63,10 @@ defmodule FlezhaKafka.ProducerWorker do
   @spec enqueue(GenServer.server(), binary(), map(), keyword()) ::
           :ok | {:error, term()}
   def enqueue(server, msg, metadata, call_opts \\ []) do
-    SafeCall.bounded(server, {:enqueue, msg, metadata}, Keyword.get(call_opts, :timeout, 35_000),
+    SafeCall.bounded(
+      server,
+      {:enqueue, msg, metadata},
+      Keyword.get(call_opts, :timeout, Durations.get(:plugin_enqueue_call_ms)),
       on_error: %{
         timeout: {:error, {:delivery_failed, :enqueue_timeout}},
         noproc: {:error, {:delivery_failed, :no_producer_worker}}
@@ -121,7 +122,7 @@ defmodule FlezhaKafka.ProducerWorker do
   """
   @spec stats(GenServer.server()) :: map()
   def stats(server) do
-    SafeCall.bounded(server, :stats, @call_ms, on_error: %{})
+    SafeCall.bounded(server, :stats, Durations.get(:plugin_worker_call_ms), on_error: %{})
   end
 
   @doc """
@@ -137,7 +138,12 @@ defmodule FlezhaKafka.ProducerWorker do
   end
 
   defp parked?(pid) do
-    stats = SafeCall.bounded(pid, :stats, 1_000, on_error: nil, log: :debug)
+    stats =
+      SafeCall.bounded(pid, :stats, Durations.get(:worker_reuse_probe_ms),
+        on_error: nil,
+        log: :debug
+      )
+
     match?(%{last_error: {:swap_exhausted, _}}, stats)
   end
 
