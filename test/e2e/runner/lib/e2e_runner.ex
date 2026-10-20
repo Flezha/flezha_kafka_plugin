@@ -27,7 +27,7 @@ defmodule E2eRunner do
     # A keyed output refuses a plain `emit`; the input is its own key.
     @impl true
     def run(input, state, ctx) do
-      :ok = emit_keyed(ctx, input, input)
+      :ok = emit(ctx, input, key: input)
       {:ok, state}
     end
   end
