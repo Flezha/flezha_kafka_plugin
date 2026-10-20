@@ -105,19 +105,19 @@ defmodule FlezhaKafka.ProducerWorker.Window do
     %{state | dropped_total: state.dropped_total + 1}
   end
 
-  # The outbox confirmation seam: an acked batch confirms every guaranteed
-  # record it carried in ONE report, and a permanently failed one parks them
-  # with their own identity — a recorded, replayable loss instead of a silent
-  # one, and a park carries a payload, so it stays per record. Records carrying
-  # no token belong to a plain chain and settle nothing.
+  # An acked batch confirms its guaranteed records in ONE report; a failed one
+  # parks each with its own identity and payload, a replayable loss. Records
+  # carrying no token belong to a plain chain and settle nothing.
   defp settle_outbox(batch, :ok), do: Outbox.confirm_many(Enum.map(batch.records, & &1.metadata))
 
   defp settle_outbox(batch, {:error, {_kind, reason}}),
     do: park(batch.records, reason, batch.attempt + 1)
 
   @doc "Parks every guaranteed record of `records` as failed for good with `reason`."
-  def park(records, reason, attempts),
-    do: Enum.each(records, &Outbox.park(&1.metadata, &1.value, reason, attempts))
+  def park(records, reason, attempts) do
+    error = Flezha.Error.new("kafka.exhausted", %{reason: reason})
+    Enum.each(records, &Outbox.park(&1.metadata, &1.value, error, attempts))
+  end
 
   @doc "Let a dispatch that waited for room go: its record is in, or overflowed."
   def release({:wait, from}), do: GenServer.reply(from, :ok)

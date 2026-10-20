@@ -63,7 +63,9 @@ defmodule FlezhaKafka.ProducerWorkerBlockedBoundTest do
 
     assert log =~ "parked undeliverable output"
     assert [entry] = DlqStore.list(rc)
-    assert entry["error"] =~ "queue_full"
+
+    assert %{"code" => "kafka.exhausted", "details" => %{"reason" => "queue_full"}} =
+             Jason.decode!(entry["error"])
   end
 
   test "a waiting dispatch is let in once a sent batch makes room" do
