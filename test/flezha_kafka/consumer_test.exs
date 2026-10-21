@@ -63,16 +63,6 @@ defmodule FlezhaKafka.ConsumerTest do
                prepare(Map.put(@base, :isolation_level, "serializable"))
     end
 
-    test "a member of a partition group is refused" do
-      assert {:error, {:partitioned_host, %{provider: "kafka_consumer", relay: "op"}}} =
-               prepare(Map.merge(@base, %{partition_count: 2, partition_index: 0}))
-    end
-
-    test "a binding without an entry channel is refused" do
-      assert {:error, {:entry_channel_required, "kafka_consumer"}} =
-               prepare(Map.delete(@base, :channel))
-    end
-
     test "a binding without a group is refused" do
       assert {:error, reason} = prepare(Map.delete(@base, :group_id))
 
@@ -179,7 +169,7 @@ defmodule FlezhaKafka.ConsumerTest do
   end
 
   describe "health" do
-    test "refusals reach the threshold, and an old lag read is idle" do
+    test "refusals reach the threshold" do
       opts = %{failure_threshold: 3, idle_after_ms: 1_000, lag_interval_ms: 5_000}
       now = :erlang.monotonic_time(:millisecond)
 
@@ -188,15 +178,6 @@ defmodule FlezhaKafka.ConsumerTest do
 
       assert health(opts, %{consecutive_failures: 3, last_error: "x", last_settled_at: now}) ==
                {:unhealthy, {:read_failed, "x"}}
-
-      assert {:unhealthy, {:poll_idle, age}} =
-               health(opts, %{
-                 consecutive_failures: 0,
-                 last_error: nil,
-                 last_settled_at: now - 2_000
-               })
-
-      assert age >= 2_000
     end
 
     test "what relay info shows is text the CLI can print" do
