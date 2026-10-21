@@ -1,13 +1,13 @@
 defmodule FlezhaKafka.IntegrationTest do
   @moduledoc """
   End-to-end integration tests against a real Kafka in
-  `docker/dev/docker-compose.yml`. Tagged `:kafka_integration` so the
+  `deploy/docker/dev/docker-compose.yml`. Tagged `:kafka_integration` so the
   default `mix test` skips them — run with:
 
       KAFKA_INTEGRATION=1 mix test --include kafka_integration test/flezha_kafka/integration_test.exs
 
   Pre-reqs:
-    1. `docker compose -f docker/dev/docker-compose.yml up -d kafka` in the core
+    1. `docker compose -f deploy/docker/dev/docker-compose.yml up -d kafka` in the core
     2. Kafka is reachable at `localhost:19092`, the listener the dev broker
        advertises to the host (`KAFKA_BROKER_HOST` and `KAFKA_BROKER_PORT` name
        another).
@@ -35,7 +35,7 @@ defmodule FlezhaKafka.IntegrationTest do
   @broker_port String.to_integer(System.get_env("KAFKA_BROKER_PORT", "19092"))
   @compose_file System.get_env(
                   "KAFKA_COMPOSE_FILE",
-                  Path.join(Mix.Project.deps_paths()[:flezha], "docker/dev/docker-compose.yml")
+                  Path.join(Mix.Project.deps_paths()[:flezha], "deploy/docker/dev/docker-compose.yml")
                 )
   @compose_service System.get_env("KAFKA_COMPOSE_SERVICE", "kafka")
 

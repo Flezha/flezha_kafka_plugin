@@ -1,6 +1,6 @@
 defmodule FlezhaKafka.ConsumerIntegrationTest do
   @moduledoc """
-  The consumer against the dev broker (`docker/dev/docker-compose.yml`, the host
+  The consumer against the dev broker (`deploy/docker/dev/docker-compose.yml`, the host
   listener `localhost:19092`). Tagged `:kafka_integration`, run with:
 
       KAFKA_INTEGRATION=1 mix test --include kafka_integration test/flezha_kafka/consumer_integration_test.exs
@@ -30,7 +30,7 @@ defmodule FlezhaKafka.ConsumerIntegrationTest do
   @api_versions %{fetch: 4, offset_fetch: 1, offset_commit: 1}
   # The record-batch attribute bit of a transaction's records.
   @transactional 0x10
-  @compose_file Path.join(Mix.Project.deps_paths()[:flezha], "docker/dev/docker-compose.yml")
+  @compose_file Path.join(Mix.Project.deps_paths()[:flezha], "deploy/docker/dev/docker-compose.yml")
 
   # A GenConsumer that hands every message set to the test.
   defmodule Forward do

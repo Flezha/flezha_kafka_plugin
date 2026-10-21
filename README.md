@@ -50,7 +50,7 @@ RUSTLER_SKIP_COMPILATION=true mix format --check-formatted
 
 `mix test` runs with `--no-start`: no controller boots, and the tests start the providers'
 worker families and stand in for the broker and the relay. The catalogue test fails when a
-code the producer refuses with is missing from the core's `flz_transport/errors.json`, and the
+code the producer refuses with is missing from the core's `crates/flz_transport/errors.json`, and the
 docs test when the option table of `docs/public/plugins/kafka_producer.md` or
 `docs/public/plugins/kafka_consumer.md` differs from its provider's declaration, printing the table to
 put there.

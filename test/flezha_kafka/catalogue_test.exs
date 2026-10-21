@@ -6,7 +6,7 @@ defmodule FlezhaKafka.CatalogueTest do
   use ExUnit.Case, async: true
 
   @catalogue Mix.Project.deps_paths()[:flezha]
-             |> Path.join("flz_transport/errors.json")
+             |> Path.join("crates/flz_transport/errors.json")
              |> File.read!()
              |> Jason.decode!()
 
