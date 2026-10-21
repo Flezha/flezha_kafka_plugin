@@ -9,7 +9,7 @@ defmodule E2eRunner do
 
   defmodule Echo do
     @moduledoc false
-    use Flezha.SDK.Relay, factory_id: "echo", input: "in", output: "out"
+    use Flezha.SDK.Relay, factory_id: "echo", input: "in", codec: :text, output: "out"
 
     def run(input, state, ctx) do
       emit(ctx, input)
@@ -40,6 +40,7 @@ defmodule E2eRunner do
 
     @impl true
     def channels(c),
-      do: c |> input("in") |> into(E2eRunner.EchoOnceTask) |> keyed() |> output("out")
+      do:
+        c |> input("in", codec: :text) |> into(E2eRunner.EchoOnceTask) |> keyed() |> output("out")
   end
 end

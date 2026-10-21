@@ -154,11 +154,12 @@ check_f() {
   producer pass_plain_out "$out"
   bind pass_plain_out pass_plain
   consumer pass_plain_in "$in" pass_plain
+  # Named, `relay info` shows the relay's API; the listing shows its plugins' state.
   if await_count "$out" 100 &&
-    until_ok 30 "grep -q 'assignment: $in/0' <<<\"\$(flz relay info pass_plain)\""; then
-    pass f "a plain relay consumed 100 records of $in into $out; relay info: $(flz relay info pass_plain | grep -m1 'lag:')"
+    until_ok 30 "grep -q 'assignment: $in/0' <<<\"\$(flz relay info)\""; then
+    pass f "a plain relay consumed 100 records of $in into $out; relay info: $(flz relay info 2>/dev/null | grep -m1 'lag:')"
   else
-    fail f "$out holds $(topic_values "$out" | sort -u | wc -l) of 100; $(flz relay info pass_plain 2>&1 | tail -3)"
+    fail f "$out holds $(topic_values "$out" | sort -u | wc -l) of 100; $(flz relay info 2>&1 | grep -A4 'pass_plain_in:')"
   fi
 }
 
