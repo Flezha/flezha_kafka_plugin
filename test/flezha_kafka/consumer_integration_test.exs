@@ -30,7 +30,10 @@ defmodule FlezhaKafka.ConsumerIntegrationTest do
   @api_versions %{fetch: 4, offset_fetch: 1, offset_commit: 1}
   # The record-batch attribute bit of a transaction's records.
   @transactional 0x10
-  @compose_file Path.join(Mix.Project.deps_paths()[:flezha], "deploy/docker/dev/docker-compose.yml")
+  @compose_file Path.join(
+                  Mix.Project.deps_paths()[:flezha],
+                  "deploy/docker/dev/docker-compose.yml"
+                )
 
   # A GenConsumer that hands every message set to the test.
   defmodule Forward do

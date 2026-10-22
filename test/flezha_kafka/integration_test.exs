@@ -35,7 +35,10 @@ defmodule FlezhaKafka.IntegrationTest do
   @broker_port String.to_integer(System.get_env("KAFKA_BROKER_PORT", "19092"))
   @compose_file System.get_env(
                   "KAFKA_COMPOSE_FILE",
-                  Path.join(Mix.Project.deps_paths()[:flezha], "deploy/docker/dev/docker-compose.yml")
+                  Path.join(
+                    Mix.Project.deps_paths()[:flezha],
+                    "deploy/docker/dev/docker-compose.yml"
+                  )
                 )
   @compose_service System.get_env("KAFKA_COMPOSE_SERVICE", "kafka")
 
