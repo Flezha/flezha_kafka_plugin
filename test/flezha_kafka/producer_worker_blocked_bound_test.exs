@@ -23,7 +23,9 @@ defmodule FlezhaKafka.ProducerWorkerBlockedBoundTest do
   alias FlezhaTest.Helper.ProviderPrepare
 
   @queue_max 10
-  @block_ms 100
+  # Long enough that all twenty dispatches are waiting before the first of
+  # them gives up, however slowly a loaded machine starts them.
+  @block_ms 1_000
 
   @tag :tmp_dir
   test "a dispatch to a full worker waits, then its record overflows after queue_block_timeout_ms",
@@ -47,11 +49,13 @@ defmodule FlezhaKafka.ProducerWorkerBlockedBoundTest do
 
         assert NodeTestHelper.wait_until(
                  fn -> ProducerWorker.stats(pid)[:waiting] == 20 end,
-                 1_000,
+                 @block_ms,
                  5
                )
 
-        for elapsed_ms <- Task.await_many(tasks, 2_000), do: assert(elapsed_ms >= @block_ms)
+        for elapsed_ms <- Task.await_many(tasks, @block_ms + 5_000),
+            do: assert(elapsed_ms >= @block_ms)
+
         assert :ok = ProviderPrepare.assert_confirmed([{:cursor, 1}], 1_000)
       end)
 
