@@ -108,9 +108,10 @@ defmodule FlezhaKafka.Consumer.Member do
         {:noreply,
          rejoin_later(state, if(pid == group, do: "exited", else: "lost its lag client"), reason)}
 
-  def handle_info(:batch_taken, state), do: {:noreply, Worker.recovered(state)}
+  def handle_info(:batch_taken, state), do: {:noreply, Worker.recovered(state, subject(state))}
 
-  def handle_info({:batch_refused, error}, state), do: {:noreply, Worker.failed(state, error)}
+  def handle_info({:batch_refused, error}, state),
+    do: {:noreply, Worker.failed(state, error, subject(state))}
 
   def handle_info(_other, state), do: {:noreply, state}
 
@@ -278,6 +279,8 @@ defmodule FlezhaKafka.Consumer.Member do
   def partition_name({topic, partition}), do: "#{topic}/#{partition}"
 
   defp labels(state), do: %{plugin_id: state.plugin_id, group_id: state.group_id}
+
+  defp subject(state), do: "[FlezhaKafka.Consumer] group=#{state.group_id}"
 
   defp emit(verb, measurements, metadata),
     do: ProviderBehaviour.emit(@provider, verb, measurements, metadata)
