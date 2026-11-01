@@ -37,17 +37,12 @@ defmodule FlezhaKafka.ProducerWorkerEnqueueTest do
     assert metadata.topic == @topic
   end
 
+  # A worker started without a script never has a send answered, so its first
+  # batch stays in flight and the queue backs up behind it however slow the
+  # machine is.
   describe "cast_enqueue/3" do
     test "admission below queue_max returns :ok and queue depth increases" do
-      {pid, script_pid} =
-        start_worker(
-          queue_max: 100,
-          linger_ms: 1
-        )
-
-      Agent.update(script_pid, fn _ ->
-        List.duplicate({:return, {:delayed, Fakes.ok_response(@topic, @partition), 150}}, 5)
-      end)
+      {pid, _} = start_worker(queue_max: 100, linger_ms: 1)
 
       assert :ok = ProducerWorker.cast_enqueue(pid, "first", %{})
       # The linger fires and the first record goes out alone.
@@ -64,14 +59,12 @@ defmodule FlezhaKafka.ProducerWorkerEnqueueTest do
     end
 
     test "sustained casts above drain rate trigger drop-oldest telemetry; mailbox stays bounded" do
-      {pid, script_pid} =
+      {pid, _} =
         start_worker(
           queue_max: 5,
           queue_overflow: :drop_oldest,
           linger_ms: 1
         )
-
-      Fakes.script_slow_first(script_pid, 150, 0)
 
       attach(:dropped)
 
@@ -98,14 +91,12 @@ defmodule FlezhaKafka.ProducerWorkerEnqueueTest do
     end
 
     test "drop-newest under cast emits dropped telemetry without replying" do
-      {pid, script_pid} =
+      {pid, _} =
         start_worker(
           queue_max: 1,
           queue_overflow: :drop_newest,
           linger_ms: 1
         )
-
-      Fakes.script_slow_first(script_pid, 150, 0)
 
       attach(:dropped)
 
